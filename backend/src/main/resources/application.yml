@@ -1,0 +1,89 @@
+spring:
+  application:
+    name: carnalysys-api
+  profiles:
+    default: local
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
+  # spring-boot-devtools (on classpath for mvn spring-boot:run / IDE): restarts when target/classes changes.
+  # In Cursor/VS Code or IntelliJ, turn on automatic Java build on save so .class files update without manual mvn compile.
+  devtools:
+    restart:
+      enabled: true
+      poll-interval: 1s
+      quiet-period: 400ms
+    livereload:
+      enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+
+server:
+  port: 8080
+  tomcat:
+    # Admin product create sends base64/data URLs in JSON — default 2MB is too small
+    max-http-post-size: 25MB
+
+logging:
+  level:
+    org.springframework.web.servlet.DispatcherServlet: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+carnalysys:
+  storage:
+    avatar-dir: /data/carpharmacy/avatars
+    vehicles-dir: /data/carpharmacy/uploads/vehicles
+    receipts-dir: /data/carpharmacy/uploads/receipts
+    logs-dir: /data/carpharmacy/logs
+
+app:
+  jwt:
+    access-ttl-seconds: 900
+  refresh-token:
+    ttl-seconds: 604800
+  otp:
+    demo-code: "123456"
+    ttl-seconds: 300
+  admin:
+    session-ttl-seconds: 86400
+  cors:
+    allowed-origins: ""
+  payment:
+    provider: "mockpay"
+    razorpay-key-id: ${APP_PAYMENT_RAZORPAY_KEY_ID:}
+    razorpay-key-secret: ${APP_PAYMENT_RAZORPAY_KEY_SECRET:}
+    webhook-replay-window-seconds: 600
+    reconciliation-ms: 300000
+    pending-timeout-minutes: 30
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+carnalysys:
+  storage:
+    logs-dir: ${java.io.tmpdir}/carpharmacy/logs

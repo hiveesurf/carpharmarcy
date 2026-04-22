@@ -1,0 +1,9 @@
+services:
+  api:
+    image: ${CARNALYSYS_API_IMAGE}
+    env_file:
+      - ./backend/.env.uat
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    restart: unless-stopped
+

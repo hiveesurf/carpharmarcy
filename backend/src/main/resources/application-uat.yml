@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET}
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
+  payment:
+    provider: ${APP_PAYMENT_PROVIDER:razorpay}
+    razorpay-key-id: ${APP_PAYMENT_RAZORPAY_KEY_ID}
+    razorpay-key-secret: ${APP_PAYMENT_RAZORPAY_KEY_SECRET}
+    webhook-secret: ${APP_PAYMENT_WEBHOOK_SECRET}
+
+carnalysys:
+  storage:
+    avatar-dir: ${CARNALYSYS_STORAGE_AVATAR_DIR:/data/carpharmacy/avatars}
+    vehicles-dir: ${CARNALYSYS_STORAGE_VEHICLES_DIR:/data/carpharmacy/uploads/vehicles}
+    receipts-dir: ${CARNALYSYS_STORAGE_RECEIPTS_DIR:/data/carpharmacy/uploads/receipts}
+    logs-dir: ${CARNALYSYS_STORAGE_LOGS_DIR:/data/carpharmacy/logs}

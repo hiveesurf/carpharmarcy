@@ -1,0 +1,9 @@
+services:
+  api:
+    image: ${CARNALYSYS_API_IMAGE:-carnalysys-api:local}
+    env_file:
+      - ./backend/.env.local
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    restart: unless-stopped
+

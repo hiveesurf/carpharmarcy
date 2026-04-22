@@ -1,0 +1,506 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-void: #020203;
+  --color-ink: #070708;
+  --color-slate: #0c0d11;
+  --color-graphite: #14161d;
+  --color-steel: #1e222c;
+  --color-mist: #8b909d;
+  --color-fog: #f0f1f5;
+
+  --color-accent: #e8ff5a;
+  --color-accent-muted: rgba(232, 255, 90, 0.1);
+  --color-flare: #ff4e20;
+  --color-flare-muted: rgba(255, 78, 32, 0.12);
+  --color-hud: #5cdbd5;
+  --color-on-accent: #08090c;
+
+  --shadow-glow: 0 0 80px -20px rgba(232, 255, 90, 0.45);
+  --shadow-flare: 0 0 60px -15px rgba(255, 78, 32, 0.5);
+}
+
+/* Light theme — carpharmacy storefront (orange / navy / clean neutrals) */
+html[data-theme='light'] {
+  color-scheme: light;
+
+  /* Soft grey canvas — less harsh than pure white */
+  --color-void: #e9ecef;
+  --color-ink: #f1f3f5;
+  --color-slate: #eef1f4;
+  --color-graphite: #e4e8ec;
+  --color-steel: #d8dde4;
+  --color-mist: #5c6370;
+  --color-fog: #1a1d24;
+
+  --color-accent: #ff6b35;
+  --color-accent-muted: rgba(255, 107, 53, 0.12);
+  --color-flare: #e85d2c;
+  --color-flare-muted: rgba(232, 93, 44, 0.12);
+  --color-hud: #003366;
+  --color-on-accent: #ffffff;
+
+  --shadow-glow: 0 0 48px -12px rgba(255, 107, 53, 0.35);
+  --shadow-flare: 0 0 40px -10px rgba(232, 93, 44, 0.3);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-ink);
+    color: var(--color-fog);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition:
+      background-color 0.35s ease,
+      color 0.35s ease;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    color: var(--color-on-accent);
+  }
+}
+
+html[data-theme='light'] ::selection {
+  color: var(--color-fog);
+}
+
+/* Parallax section photos — opacity tuned per theme */
+.parallax-backdrop-img {
+  opacity: 0.24;
+}
+
+html[data-theme='light'] .parallax-backdrop-img {
+  opacity: 0.2;
+}
+
+/* Hero readability: uses theme tokens (not hardcoded dark-only RGBA) */
+.hero-overlay-side {
+  background: linear-gradient(
+    to right,
+    var(--color-ink),
+    color-mix(in srgb, var(--color-ink) 82%, transparent),
+    color-mix(in srgb, var(--color-ink) 22%, transparent)
+  );
+}
+
+@media (min-width: 640px) {
+  .hero-overlay-side {
+    background: linear-gradient(
+      to right,
+      var(--color-ink),
+      color-mix(in srgb, var(--color-ink) 74%, transparent),
+      color-mix(in srgb, var(--color-ink) 18%, transparent)
+    );
+  }
+}
+
+.hero-overlay-bottom {
+  background: linear-gradient(
+    to top,
+    var(--color-ink),
+    transparent,
+    color-mix(in srgb, var(--color-ink) 32%, transparent)
+  );
+}
+
+.hero-overlay-radial {
+  background: radial-gradient(
+    ellipse 120% 80% at 100% 0%,
+    transparent 0%,
+    color-mix(in srgb, var(--color-ink) 38%, transparent) 52%,
+    color-mix(in srgb, var(--color-ink) 90%, transparent) 100%
+  );
+}
+
+@media (min-width: 640px) {
+  .hero-overlay-radial {
+    background: radial-gradient(
+      ellipse 100% 72% at 90% 8%,
+      transparent 0%,
+      color-mix(in srgb, var(--color-ink) 34%, transparent) 48%,
+      color-mix(in srgb, var(--color-ink) 86%, transparent) 100%
+    );
+  }
+}
+
+/* Light theme hero: knock back bright photos so type + panel stay crisp */
+html[data-theme='light'] .hero-overlay-side {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, #ffffff 94%, var(--color-fog) 6%) 0%,
+    color-mix(in srgb, #ffffff 76%, transparent) 40%,
+    color-mix(in srgb, #ffffff 18%, transparent) 100%
+  );
+}
+
+@media (min-width: 640px) {
+  html[data-theme='light'] .hero-overlay-side {
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, #ffffff 95%, var(--color-fog) 5%) 0%,
+      color-mix(in srgb, #ffffff 70%, transparent) 36%,
+      transparent 100%
+    );
+  }
+}
+
+html[data-theme='light'] .hero-overlay-bottom {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, #ffffff 90%, var(--color-fog)) 0%,
+    transparent 58%
+  );
+}
+
+html[data-theme='light'] .hero-overlay-radial {
+  background: radial-gradient(
+    ellipse 115% 78% at 100% 0%,
+    transparent 0%,
+    color-mix(in srgb, #ffffff 50%, transparent) 45%,
+    color-mix(in srgb, #ffffff 90%, transparent) 100%
+  );
+}
+
+@media (min-width: 640px) {
+  html[data-theme='light'] .hero-overlay-radial {
+    background: radial-gradient(
+      ellipse 100% 74% at 92% 6%,
+      transparent 0%,
+      color-mix(in srgb, #ffffff 46%, transparent) 42%,
+      color-mix(in srgb, #ffffff 88%, transparent) 100%
+    );
+  }
+}
+
+/* Navbar: solid-enough bar in light mode for contrast */
+.nav-chrome {
+  background-color: color-mix(in srgb, var(--color-ink) 82%, transparent);
+}
+
+html[data-theme='light'] .nav-chrome {
+  background-color: color-mix(in srgb, #ffffff 96%, var(--color-slate) 4%);
+  box-shadow: 0 4px 24px -8px color-mix(in srgb, var(--color-fog) 12%, transparent);
+}
+
+/* CTA strip — theme-aware scrim over photo */
+.cta-photo-scrim {
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--color-ink) 88%, transparent) 0%,
+    color-mix(in srgb, var(--color-slate) 82%, transparent) 45%,
+    color-mix(in srgb, var(--color-graphite) 85%, transparent) 100%
+  );
+}
+
+/* Card image bottoms: text-fog stays readable in both themes */
+.card-img-scrim-b {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--color-ink) 92%, transparent),
+    color-mix(in srgb, var(--color-ink) 28%, transparent),
+    transparent
+  );
+}
+
+.card-img-scrim-r {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--color-ink) 88%, transparent),
+    color-mix(in srgb, var(--color-ink) 22%, transparent),
+    transparent
+  );
+}
+
+/* Why choose us tiles: bottom fade on mobile, left-to-right on md+ */
+.card-img-scrim-why {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--color-ink) 90%, transparent),
+    color-mix(in srgb, var(--color-ink) 28%, transparent),
+    transparent
+  );
+}
+
+@media (min-width: 768px) {
+  .card-img-scrim-why {
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--color-ink) 88%, transparent),
+      color-mix(in srgb, var(--color-ink) 24%, transparent),
+      transparent
+    );
+  }
+}
+
+/* Hero frosted copy panel — readable on photo in dark + light */
+.hero-copy-panel {
+  background: color-mix(in srgb, var(--color-ink) 38%, transparent);
+}
+
+html[data-theme='light'] .hero-copy-panel {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: color-mix(in srgb, var(--color-fog) 12%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--color-fog) 6%, transparent),
+    0 28px 64px -32px color-mix(in srgb, var(--color-fog) 24%, transparent);
+}
+
+html[data-theme='light'] .hero-telemetry-chip {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: color-mix(in srgb, var(--color-fog) 14%, transparent);
+}
+
+/* Parts card category chip — contrast on bright photos in both themes */
+.part-card-category-pill {
+  border: 1px solid color-mix(in srgb, white 22%, transparent);
+  background: color-mix(in srgb, black 58%, transparent);
+  color: var(--color-hud);
+}
+
+html[data-theme='light'] .part-card-category-pill {
+  border-color: color-mix(in srgb, var(--color-fog) 20%, transparent);
+  background: color-mix(in srgb, white 88%, transparent);
+  color: var(--color-hud);
+}
+
+/* Blueprint grid */
+.bg-blueprint {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-hud) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-hud) 18%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+html[data-theme='light'] .bg-blueprint {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-hud) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-hud) 22%, transparent) 1px, transparent 1px);
+}
+
+/* Film grain */
+.grain-svg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 35;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+}
+
+html[data-theme='light'] .grain-svg {
+  opacity: 0.014;
+  mix-blend-mode: multiply;
+}
+
+/* Storefront hero & motion */
+.ad-hero-gradient {
+  background:
+    radial-gradient(ellipse 90% 70% at 80% 20%, rgba(255, 255, 255, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 10% 80%, rgba(0, 51, 102, 0.15) 0%, transparent 50%),
+    linear-gradient(135deg, #ff6b35 0%, #ff8f57 45%, #ff6b35 100%);
+  background-size: 100% 100%, 100% 100%, 200% 200%;
+  animation: ad-hero-shift 14s ease-in-out infinite;
+}
+
+@keyframes ad-hero-shift {
+  0%,
+  100% {
+    background-position: 0% 0%, 0% 0%, 0% 50%;
+  }
+  50% {
+    background-position: 0% 0%, 0% 0%, 100% 50%;
+  }
+}
+
+.ad-float {
+  animation: ad-float 5s ease-in-out infinite;
+}
+
+@keyframes ad-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.ad-blob-drift {
+  animation: ad-blob 18s ease-in-out infinite;
+}
+
+.ad-blob-drift-delayed {
+  animation: ad-blob 22s ease-in-out infinite;
+  animation-delay: -6s;
+}
+
+.ad-blob-drift-slow {
+  animation: ad-blob 26s ease-in-out infinite;
+  animation-delay: -12s;
+}
+
+@keyframes ad-blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.85;
+  }
+  33% {
+    transform: translate(4%, -3%) scale(1.05);
+    opacity: 1;
+  }
+  66% {
+    transform: translate(-3%, 4%) scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+html[data-theme='dark'] .ad-hero-gradient {
+  background: linear-gradient(135deg, #c44d22 0%, #ff6b35 50%, #a63d18 100%);
+  animation: none;
+}
+
+.clip-chamfer {
+  clip-path: polygon(
+    12px 0,
+    100% 0,
+    100% calc(100% - 12px),
+    calc(100% - 12px) 100%,
+    0 100%,
+    0 12px
+  );
+}
+
+.clip-chamfer-sm {
+  clip-path: polygon(
+    8px 0,
+    100% 0,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    0 100%,
+    0 8px
+  );
+}
+
+@keyframes gradient-shift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 0.5;
+  }
+  40% {
+    transform: translate(6%, -8%) scale(1.12) rotate(2deg);
+    opacity: 0.38;
+  }
+  70% {
+    transform: translate(-8%, 5%) scale(1.06) rotate(-1deg);
+    opacity: 0.45;
+  }
+}
+
+@keyframes line-drift {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -140;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.03);
+  }
+}
+
+.animate-gradient-blob {
+  animation: gradient-shift 22s ease-in-out infinite;
+}
+
+.animate-line-drift {
+  animation: line-drift 16s linear infinite;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 7s ease-in-out infinite;
+}
+
+/* Admin — match storefront light theme (white cards, soft shadow; dark theme stays graphite) */
+.admin-card {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-steel) 58%, transparent);
+}
+
+html[data-theme='light'] .admin-card {
+  background-color: #ffffff;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--color-fog) 5%, transparent),
+    0 20px 48px -28px color-mix(in srgb, var(--color-fog) 14%, transparent);
+}
+
+html[data-theme='dark'] .admin-card {
+  background-color: color-mix(in srgb, var(--color-slate) 94%, white);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+}
+
+.admin-input {
+  border-radius: 0.5rem;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+html[data-theme='light'] .admin-input {
+  background-color: #ffffff;
+  border: 1px solid #d8dce3;
+  color: var(--color-fog);
+}
+
+html[data-theme='light'] .admin-input::placeholder {
+  color: #9aa0a8;
+}
+
+html[data-theme='light'] .admin-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+html[data-theme='dark'] .admin-input {
+  background-color: color-mix(in srgb, var(--color-graphite) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-steel) 78%, transparent);
+  color: var(--color-fog);
+}
+
+html[data-theme='dark'] .admin-input:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+html[data-theme='light'] .admin-row-muted {
+  background-color: #f6f7f9;
+}
+
+html[data-theme='dark'] .admin-row-muted {
+  background-color: color-mix(in srgb, var(--color-ink) 62%, transparent);
+}

@@ -1,0 +1,37 @@
+---
+description: CARNALYSYS monorepo map, API boundaries, and how backend + frontend connect
+alwaysApply: true
+---
+
+# CARNALYSYS — project stack
+
+## Monorepo
+
+- **Backend:** `backend/` — Maven module `carnalysys-api`, base package `com.carnalysys`.
+- **Frontend:** repo root `src/`, `index.html`, Vite — calls REST under `/api/v1`.
+
+## REST API
+
+- Controllers live under `com.carnalysys.web.v1` (e.g. `*V1Controller.java`).
+- Responses often use a shared envelope pattern (`ApiEnvelope`, `ApiResponses.ok`).
+- Public catalog vs admin vs user routes are separated; security filters apply per path (see `Security` config).
+
+## Data
+
+- JPA entities in `domain/`; repositories in `repo/`; Flyway migrations in `backend/src/main/resources/db/migration/`.
+- Prefer schema changes via **new Flyway versions**, not ad-hoc DDL in code.
+
+## When editing Java
+
+- Match existing layering: **Controller → Service → Repository → Entity**.
+- Use `@Transactional` on service methods that mutate or span multiple repository calls.
+- Preserve existing DTO/envelope and error (`ApiException`) conventions.
+
+## When editing React
+
+- Prefer existing `services/*` and `api/client.js` over raw `fetch` scattered in components.
+- Admin UI is under `src/admin/`; public store under `src/pages/` and `src/components/`.
+
+## Optional deep rules
+
+If symlinks from `scripts/link-cursor-java-rules.sh` are present, use **@** mentions on those files for Spring/Maven/architecture deep dives (e.g. `@302-frameworks-spring-boot-rest.mdc`).

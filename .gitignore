@@ -1,0 +1,111 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+backend/target/
+
+dist-ssr
+*.local
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.local
+!.env.uat
+!.env.production
+!.env.development
+backend/.env.local
+backend/.env.uat
+backend/.env.prod
+!backend/.env.local.example
+!backend/.env.uat.example
+!backend/.env.prod.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+bun-debug.log*
+
+# Runtime / caches
+.cache
+.parcel-cache
+.turbo
+.eslintcache
+*.tsbuildinfo
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Package managers (keep one lockfile in repo; ignore alternate tool caches)
+.bun
+.pnpm-store
+
+# Test / coverage
+coverage
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Optional local tooling
+*.pem
+
+# Spring local avatar files (carnalysys.storage.avatar-dir)
+/data/
+
+# Symlinks from scripts/link-cursor-java-rules.sh (absolute paths; regenerate per machine)
+.cursor/rules/0*.mdc
+.cursor/rules/1*.mdc
+.cursor/rules/2*.mdc
+.cursor/rules/3*.mdc
+
+# Third-party AI / editor agent folders (recreated if you use those tools)
+.agents/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.crush/
+.factory/
+.goose/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.windsurf/
+.zencoder/
+.vercel
+
+# Local MCP config (contains API tokens/secrets)
+.cursor/mcp.json
+
+# Backend runtime data/uploads generated locally
+backend/data/

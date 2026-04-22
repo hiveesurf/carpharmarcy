@@ -1,0 +1,85 @@
+# CARNALYSYS — PostgreSQL + pgAdmin (local dev)
+#
+#   docker compose up -d
+#
+# pgAdmin UI: http://127.0.0.1:5050
+#   Email / password: admin@carnalysys.com / admin (override with PGADMIN_DEFAULT_*).
+#   Two DB servers are pre-registered; DB password comes from POSTGRES_PASSWORD via .pgpass.
+#
+# Postgres CLI:
+#   docker compose exec postgres psql -U carnalysys -d carnalysys -c '\dt'
+#
+# Reset data volume (destructive):
+#   docker compose down -v && docker compose up -d
+
+x-db-credentials: &db-credentials
+  POSTGRES_USER: carnalysys
+  POSTGRES_PASSWORD: carnalysys_dev
+  POSTGRES_DB: carnalysys
+
+services:
+  api:
+    image: ${CARNALYSYS_API_IMAGE:-carnalysys-api:local}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - path: ./backend/.env.local
+        required: false
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/carnalysys}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-carnalysys}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-carnalysys_dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '${SERVER_PORT:-8080}:8080'
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: carnalysys-postgres
+    restart: unless-stopped
+    environment:
+      <<: *db-credentials
+      PGUSER: carnalysys
+    ports:
+      - '5432:5432'
+    volumes:
+      - carnalysys_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U carnalysys -d carnalysys']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    container_name: carnalysys-pgadmin
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *db-credentials
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@carnalysys.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: 'True'
+    ports:
+      - '5050:80'
+    extra_hosts:
+      # Lets the "host.docker.internal" server entry work on Linux Docker (matches Desktop/Mac).
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - ./db/pgadmin/bootstrap.sh:/bootstrap.sh:ro
+      - ./db/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    entrypoint: ['/bin/bash', '/bootstrap.sh']
+
+volumes:
+  carnalysys_pgdata:

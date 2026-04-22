@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/carnalysys}
+    username: ${SPRING_DATASOURCE_USERNAME:carnalysys}
+    password: ${SPRING_DATASOURCE_PASSWORD:carnalysys_dev}
+
+logging:
+  level:
+    org.springframework.web.servlet.DispatcherServlet: DEBUG
+
+carnalysys:
+  storage:
+    avatar-dir: ${CARNALYSYS_STORAGE_AVATAR_DIR:${user.dir}/data/carpharmacy/avatars}
+    vehicles-dir: ${CARNALYSYS_STORAGE_VEHICLES_DIR:${user.dir}/data/carpharmacy/uploads/vehicles}
+    receipts-dir: ${CARNALYSYS_STORAGE_RECEIPTS_DIR:${user.dir}/data/carpharmacy/uploads/receipts}
+    logs-dir: ${CARNALYSYS_STORAGE_LOGS_DIR:${user.dir}/data/carpharmacy/logs}
+
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET:dev-change-me-use-at-least-256-bits-for-production-secrets-please}
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5199,http://127.0.0.1:5199}
+  payment:
+    provider: ${APP_PAYMENT_PROVIDER:mockpay}
+    razorpay-key-id: ${APP_PAYMENT_RAZORPAY_KEY_ID:}
+    razorpay-key-secret: ${APP_PAYMENT_RAZORPAY_KEY_SECRET:}
+    webhook-secret: ${APP_PAYMENT_WEBHOOK_SECRET:dev-payment-secret}

@@ -1,0 +1,142 @@
+[
+  {
+    "id": "brk-front-001",
+    "sku": "BRK-F-001",
+    "name": "Ceramic Brake Pads (Front)",
+    "category": "Brakes",
+    "price": 4299,
+    "totalStock": 48,
+    "imageKey": "brakes",
+    "compatibleCars": ["Hyundai i20", "Hyundai Creta", "Maruti Swift", "Honda Amaze"]
+  },
+  {
+    "id": "oil-syn-5w30",
+    "sku": "OIL-5W30-4L",
+    "name": "Synthetic 5W-30 Engine Oil (4L)",
+    "category": "Fluids",
+    "price": 2149,
+    "totalStock": 120,
+    "imageKey": "oil",
+    "compatibleCars": ["All vehicles"]
+  },
+  {
+    "id": "flt-air-001",
+    "sku": "FLT-AIR-88",
+    "name": "OEM Air Filter Assembly",
+    "category": "Filters",
+    "price": 899,
+    "totalStock": 64,
+    "imageKey": "filter",
+    "compatibleCars": ["Honda City", "Honda Amaze", "Maruti Baleno"]
+  },
+  {
+    "id": "led-h7-kit",
+    "sku": "LED-H7-KIT",
+    "name": "LED Headlamp Kit — H7",
+    "category": "Lighting",
+    "price": 6499,
+    "totalStock": 22,
+    "imageKey": "led",
+    "compatibleCars": ["VW Taigun", "Hyundai Creta", "Tata Nexon"]
+  },
+  {
+    "id": "wpr-24",
+    "sku": "WPR-24-U",
+    "name": "Premium Wiper Blade Set (24\"+16\")",
+    "category": "Body",
+    "price": 1299,
+    "totalStock": 75,
+    "imageKey": "wipers",
+    "compatibleCars": ["Hyundai i20", "Maruti Swift", "Honda City"]
+  },
+  {
+    "id": "cool-1l",
+    "sku": "COOL-1L",
+    "name": "Long-life Coolant (1L)",
+    "category": "Fluids",
+    "price": 449,
+    "totalStock": 200,
+    "imageKey": "coolant",
+    "compatibleCars": ["All vehicles"]
+  },
+  {
+    "id": "spk-ngk-4",
+    "sku": "SPK-NGK-4",
+    "name": "NGK Iridium Spark Plugs (Set of 4)",
+    "category": "Ignition",
+    "price": 1899,
+    "totalStock": 36,
+    "imageKey": "spark",
+    "compatibleCars": ["Honda City", "Maruti Baleno", "Hyundai i20"]
+  },
+  {
+    "id": "tire-195-55",
+    "sku": "TIR-195-55R16",
+    "name": "All-season Tire 195/55 R16",
+    "category": "Wheels",
+    "price": 5299,
+    "totalStock": 16,
+    "imageKey": "tire",
+    "compatibleCars": ["Hyundai i20", "Honda Amaze", "Maruti Swift"]
+  },
+  {
+    "id": "alt-120a",
+    "sku": "ALT-120A",
+    "name": "120A Alternator (Reman)",
+    "category": "Electrical",
+    "price": 12499,
+    "totalStock": 8,
+    "imageKey": "alternator",
+    "compatibleCars": ["Mahindra XUV700", "Tata Nexon", "Hyundai Creta"]
+  },
+  {
+    "id": "clutch-kit",
+    "sku": "CLU-MNL-001",
+    "name": "Clutch Kit — Manual",
+    "category": "Transmission",
+    "price": 8999,
+    "totalStock": 11,
+    "imageKey": "clutch",
+    "compatibleCars": ["Honda City", "Maruti Swift", "Hyundai i20"]
+  },
+  {
+    "id": "shock-front",
+    "sku": "SUS-FR-01",
+    "name": "Front Shock Absorber Pair",
+    "category": "Suspension",
+    "price": 6799,
+    "totalStock": 14,
+    "imageKey": "suspension",
+    "compatibleCars": ["VW Taigun", "Hyundai Creta", "Tata Nexon"]
+  },
+  {
+    "id": "belt-serp",
+    "sku": "BLT-SRP-6K",
+    "name": "Serpentine Drive Belt",
+    "category": "Engine",
+    "price": 1599,
+    "totalStock": 42,
+    "imageKey": "belt",
+    "compatibleCars": ["All vehicles"]
+  },
+  {
+    "id": "mir-rh-pwr",
+    "sku": "MIR-RH-PWR",
+    "name": "Power Side Mirror — RH",
+    "category": "Body",
+    "price": 3499,
+    "totalStock": 19,
+    "imageKey": "mirror",
+    "compatibleCars": ["Maruti Baleno", "Hyundai i20", "Honda Amaze"]
+  },
+  {
+    "id": "bat-60ah",
+    "sku": "BAT-60AH-AGM",
+    "name": "AGM Battery 60Ah",
+    "category": "Electrical",
+    "price": 7899,
+    "totalStock": 27,
+    "imageKey": "alternator",
+    "compatibleCars": ["Honda City", "VW Taigun", "Mahindra XUV700", "All vehicles"]
+  }
+]

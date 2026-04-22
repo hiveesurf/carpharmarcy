@@ -1,0 +1,800 @@
+package com.carnalysys.service;
+
+import com.carnalysys.api.ApiException;
+import com.carnalysys.domain.AddressEntity;
+import com.carnalysys.domain.Cart;
+import com.carnalysys.domain.CartItem;
+import com.carnalysys.domain.OrderEntity;
+import com.carnalysys.domain.OrderLine;
+import com.carnalysys.domain.OrderStatus;
+import com.carnalysys.domain.OrderStatusAuditEntity;
+import com.carnalysys.domain.PaymentEventEntity;
+import com.carnalysys.domain.PaymentMethod;
+import com.carnalysys.domain.PaymentStatus;
+import com.carnalysys.domain.PaymentTransactionEntity;
+import com.carnalysys.domain.PaymentTransactionStatus;
+import com.carnalysys.domain.Product;
+import com.carnalysys.domain.ProductType;
+import com.carnalysys.domain.UserEntity;
+import com.carnalysys.domain.UserProfile;
+import com.carnalysys.repo.AddressRepository;
+import com.carnalysys.repo.CartItemRepository;
+import com.carnalysys.repo.OrderLineRepository;
+import com.carnalysys.repo.OrderRepository;
+import com.carnalysys.repo.OrderStatusAuditRepository;
+import com.carnalysys.repo.PaymentEventRepository;
+import com.carnalysys.repo.PaymentTransactionRepository;
+import com.carnalysys.repo.ProductRepository;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import com.carnalysys.repo.UserProfileRepository;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class OrderService {
+
+  private final OrderRepository orderRepository;
+  private final OrderLineRepository orderLineRepository;
+  private final AddressRepository addressRepository;
+  private final CartService cartService;
+  private final CartItemRepository cartItemRepository;
+  private final UserProfileRepository userProfileRepository;
+  private final ProductRepository productRepository;
+  private final OrderStatusAuditRepository orderStatusAuditRepository;
+  private final PaymentEventRepository paymentEventRepository;
+  private final PaymentTransactionRepository paymentTransactionRepository;
+  private final UploadStorageService uploadStorageService;
+  private final NotificationService notificationService;
+
+  public OrderService(
+      OrderRepository orderRepository,
+      OrderLineRepository orderLineRepository,
+      AddressRepository addressRepository,
+      CartService cartService,
+      CartItemRepository cartItemRepository,
+      UserProfileRepository userProfileRepository,
+      ProductRepository productRepository,
+      OrderStatusAuditRepository orderStatusAuditRepository,
+      PaymentEventRepository paymentEventRepository,
+      PaymentTransactionRepository paymentTransactionRepository,
+      UploadStorageService uploadStorageService,
+      NotificationService notificationService) {
+    this.orderRepository = orderRepository;
+    this.orderLineRepository = orderLineRepository;
+    this.addressRepository = addressRepository;
+    this.cartService = cartService;
+    this.cartItemRepository = cartItemRepository;
+    this.userProfileRepository = userProfileRepository;
+    this.productRepository = productRepository;
+    this.orderStatusAuditRepository = orderStatusAuditRepository;
+    this.paymentEventRepository = paymentEventRepository;
+    this.paymentTransactionRepository = paymentTransactionRepository;
+    this.uploadStorageService = uploadStorageService;
+    this.notificationService = notificationService;
+  }
+
+  @Transactional
+  public Map<String, Object> placeOrder(
+      UUID userId, String addressIdStr, String paymentMethodRaw, String paymentTxnIdRaw) {
+    return placeOrder(userId, addressIdStr, paymentMethodRaw, paymentTxnIdRaw, null);
+  }
+
+  @Transactional
+  public Map<String, Object> placeOrder(
+      UUID userId,
+      String addressIdStr,
+      String paymentMethodRaw,
+      String paymentTxnIdRaw,
+      String demoPaymentOutcome) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    Cart cart = cartService.requireNonEmptyCart(Optional.of(uid), Optional.empty());
+    List<CartItem> lines = cartItemRepository.findByCart_IdAndDeletedAtIsNull(cart.getId());
+    if (lines.isEmpty()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_CART", "Cart is empty");
+    }
+    PaymentMethod paymentMethod = parsePaymentMethod(paymentMethodRaw);
+    String paymentTxnId =
+        normalizePaymentTxnId(
+            uploadStorageService.persistReceiptIfDataUrl(uid, paymentTxnIdRaw), userId, paymentMethod);
+
+    // Lock product rows to guarantee stock consistency during checkout.
+    List<String> productIds = lines.stream().map(ci -> ci.getProduct().getId()).distinct().toList();
+    Map<String, Product> productsById =
+        productRepository.findAllByIdInForUpdate(productIds).stream()
+            .collect(Collectors.toMap(Product::getId, p -> p));
+
+    UserEntity user = cart.getUser();
+    OrderEntity order = new OrderEntity();
+    order.setId("ord_" + UUID.randomUUID());
+    order.setUser(user);
+    order.setStatus(OrderStatus.placed);
+    order.setCurrency("INR");
+    AddressEntity ship = null;
+    if (addressIdStr != null && !addressIdStr.isBlank()) {
+      try {
+        UUID aid = UUID.fromString(addressIdStr);
+        ship =
+            addressRepository
+                .findById(Objects.requireNonNull(aid, "address id"))
+                .filter(a -> a.getDeletedAt() == null && a.getUser().getId().equals(uid))
+                .orElse(null);
+      } catch (IllegalArgumentException ignored) {
+        ship = null;
+      }
+    }
+    order.setShippingAddress(ship);
+    order.setPaymentMethod(paymentMethod);
+    order.setPaymentTxnId(paymentTxnId);
+    order.setPaymentProvider(paymentMethod == PaymentMethod.cod ? "cod" : "manual");
+    order.setPaymentOrderRef(null);
+    order.setPaymentAttemptCount(1);
+
+    BigDecimal total = BigDecimal.ZERO;
+    List<OrderLine> persisted = new ArrayList<>();
+    for (CartItem ci : lines) {
+      Product p = productsById.get(ci.getProduct().getId());
+      if (p == null) continue;
+      if (p.getDeletedAt() != null) continue;
+      if (!p.isPublished()) continue;
+      if (p.getType() == com.carnalysys.domain.ProductType.part && p.getStockQuantity() < ci.getQuantity()) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "INSUFFICIENT_STOCK",
+            "Insufficient stock for " + p.getName());
+      }
+      BigDecimal unit = p.getPriceInr();
+      BigDecimal lineTotal = unit.multiply(BigDecimal.valueOf(ci.getQuantity()));
+      total = total.add(lineTotal);
+      OrderLine ol = new OrderLine();
+      ol.setOrder(order);
+      ol.setProductId(p.getId());
+      ol.setProductNameSnapshot(p.getName());
+      ol.setSkuSnapshot(p.getSku());
+      ol.setQuantity(ci.getQuantity());
+      ol.setUnitPriceInr(unit);
+      ol.setLineTotalInr(lineTotal);
+      persisted.add(ol);
+    }
+    if (persisted.isEmpty()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_CART", "Cart is empty");
+    }
+    order.setTotalInr(total.setScale(2, RoundingMode.HALF_UP));
+    boolean paidNow =
+        paymentMethod == PaymentMethod.cod
+            || (paymentTxnIdRaw != null && !paymentTxnIdRaw.isBlank())
+            || "success".equalsIgnoreCase(demoPaymentOutcome);
+    if ("failed".equalsIgnoreCase(demoPaymentOutcome)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "PAYMENT_FAILED", "Demo payment failed");
+    }
+    if (paidNow) {
+      order.setPaymentStatus(PaymentStatus.paid);
+      order.setPaidAt(Instant.now());
+    } else {
+      order.setPaymentStatus(PaymentStatus.pending);
+    }
+    orderRepository.saveAndFlush(order);
+    orderLineRepository.saveAll(persisted);
+
+    if (order.getPaymentStatus() == PaymentStatus.paid) {
+      decrementStock(lines, productsById);
+      cartService.emptyCart(cart);
+    }
+
+    writeStatusAudit(order, null, order.getStatus(), "system", uid.toString(), "order_placed");
+    writePaymentEvent(order, null, "checkout", "init_" + order.getId(), "payment_initiated");
+    notificationService.notifyUser(
+        uid,
+        "order_status",
+        "Order placed",
+        "Your order " + order.getId() + " has been placed.",
+        "order",
+        order.getId(),
+        Map.of("status", order.getStatus().name()));
+
+    UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
+    UserProfile profile = userProfileRepository.findById(userRef).orElse(null);
+    return Map.of("order", toOrderMap(order, persisted, addressIdStr, profile, true));
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listMine(UUID userId) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    return orderRepository.findByUser_IdOrderByPlacedAtDesc(uid).stream()
+        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listMinePage(UUID userId, int page, int size) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    int safePage = Math.max(0, page);
+    int safeSize = Math.max(1, Math.min(50, size));
+    var pageResult =
+        orderRepository.findByUser_IdOrderByPlacedAtDesc(uid, PageRequest.of(safePage, safeSize));
+    UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    List<Map<String, Object>> rows =
+        pageResult.getContent().stream()
+            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+            .toList();
+    return Map.of(
+        "items", rows,
+        "page", safePage,
+        "size", safeSize,
+        "hasMore", pageResult.hasNext(),
+        "nextPage", pageResult.hasNext() ? safePage + 1 : safePage);
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listMineByPhone(UUID userId, String phoneE164) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    if (phoneE164 == null || phoneE164.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone required");
+    }
+    String normalized = normalizePhone(phoneE164);
+    UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    return orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(normalized).stream()
+        .filter(o -> o.getUser().getId().equals(uid))
+        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listMineByPhonePage(UUID userId, String phoneE164, int page, int size) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    if (phoneE164 == null || phoneE164.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone required");
+    }
+    int safePage = Math.max(0, page);
+    int safeSize = Math.max(1, Math.min(50, size));
+    String normalized = normalizePhone(phoneE164);
+    UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    var pageResult =
+        orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(
+            normalized, PageRequest.of(safePage, safeSize));
+    List<Map<String, Object>> rows =
+        pageResult.getContent().stream()
+            .filter(o -> o.getUser().getId().equals(uid))
+            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+            .toList();
+    return Map.of(
+        "items", rows,
+        "page", safePage,
+        "size", safeSize,
+        "hasMore", pageResult.hasNext(),
+        "nextPage", pageResult.hasNext() ? safePage + 1 : safePage);
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> getMine(UUID userId, String orderId) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    OrderEntity o =
+        orderRepository
+            .findByIdAndUser_Id(orderId, uid)
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    UserProfile profile = userProfileRepository.findById(uid).orElse(null);
+    return Map.of(
+        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true));
+  }
+
+  private Map<String, Object> toOrderMap(
+      OrderEntity o,
+      List<OrderLine> lines,
+      String addressIdOverride,
+      UserProfile profileOrNull,
+      boolean includeHistory) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", o.getId());
+    UserEntity customer = o.getUser();
+    m.put("userId", customer.getId().toString());
+    putCustomerFields(m, customer, profileOrNull);
+    m.put("status", o.getStatus().name());
+    m.put("paymentMethod", o.getPaymentMethod() != null ? o.getPaymentMethod().name() : null);
+    m.put("paymentStatus", o.getPaymentStatus() != null ? o.getPaymentStatus().name() : null);
+    m.put("paymentTxnId", o.getPaymentTxnId());
+    m.put("paymentProvider", o.getPaymentProvider());
+    m.put("paidAt", o.getPaidAt() != null ? o.getPaidAt().toString() : null);
+    List<Map<String, Object>> ls = new ArrayList<>();
+    long total = 0;
+    for (OrderLine ol : lines) {
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("productId", ol.getProductId());
+      row.put("productName", ol.getProductNameSnapshot());
+      row.put("sku", ol.getSkuSnapshot());
+      row.put("quantity", ol.getQuantity());
+      int unit = ol.getUnitPriceInr().setScale(0, RoundingMode.DOWN).intValue();
+      row.put("unitPrice", unit);
+      int lt = ol.getLineTotalInr().setScale(0, RoundingMode.DOWN).intValue();
+      row.put("lineTotal", lt);
+      total += lt;
+      ls.add(row);
+    }
+    m.put("lines", ls);
+    m.put("total", total);
+    m.put("createdAt", o.getPlacedAt().toString());
+    m.put("assignedDeliveryAdminEmail", o.getAssignedDeliveryAdminEmail());
+    m.put("assignedDeliveryAt", o.getAssignedDeliveryAt() != null ? o.getAssignedDeliveryAt().toString() : null);
+    String aid =
+        addressIdOverride != null
+            ? addressIdOverride
+            : (o.getShippingAddress() != null ? o.getShippingAddress().getId().toString() : null);
+    m.put("addressId", aid);
+    if (includeHistory) {
+      m.put("statusHistory", toStatusHistory(o.getId()));
+    }
+    return m;
+  }
+
+  private List<Map<String, Object>> toStatusHistory(String orderId) {
+    return orderStatusAuditRepository.findByOrder_IdOrderByCreatedAtAsc(orderId).stream()
+        .map(a -> {
+          Map<String, Object> row = new LinkedHashMap<>();
+          row.put("from", a.getFromStatus() != null ? a.getFromStatus().name() : null);
+          row.put("to", a.getToStatus().name());
+          row.put("actorType", a.getChangedByType());
+          row.put("actorId", a.getChangedById());
+          row.put("reason", a.getReason());
+          row.put("createdAt", a.getCreatedAt().toString());
+          return row;
+        })
+        .toList();
+  }
+
+  private static void putCustomerFields(
+      Map<String, Object> m, UserEntity u, UserProfile profileOrNull) {
+    String fromProfile =
+        profileOrNull != null && profileOrNull.getFullName() != null
+            ? profileOrNull.getFullName().trim()
+            : "";
+    String fromUser =
+        u.getDisplayName() != null ? u.getDisplayName().trim() : "";
+    String name =
+        !fromProfile.isEmpty()
+            ? fromProfile
+            : !fromUser.isEmpty()
+                ? fromUser
+                : null;
+    m.put("customerName", name);
+    m.put("customerPhone", u.getPhoneE164());
+    String email =
+        profileOrNull != null && profileOrNull.getEmail() != null
+            ? profileOrNull.getEmail().trim()
+            : null;
+    if (email != null && email.isEmpty()) {
+      email = null;
+    }
+    m.put("customerEmail", email);
+    m.put("customerRole", u.getRole() != null ? u.getRole() : "user");
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listAllAdmin() {
+    List<OrderEntity> sorted =
+        orderRepository.findAll().stream()
+            .sorted((a, b) -> b.getPlacedAt().compareTo(a.getPlacedAt()))
+            .toList();
+    Set<UUID> userIds =
+        sorted.stream().map(o -> o.getUser().getId()).collect(Collectors.toSet());
+    Map<UUID, UserProfile> profilesByUserId = new HashMap<>();
+    if (!userIds.isEmpty()) {
+      for (UserProfile p : userProfileRepository.findAllById(userIds)) {
+        profilesByUserId.put(p.getUserId(), p);
+      }
+    }
+    return sorted.stream()
+        .map(
+            o ->
+                toOrderMap(
+                    o,
+                    orderLineRepository.findByOrder_Id(o.getId()),
+                    null,
+                    profilesByUserId.get(o.getUser().getId()),
+                    false))
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listAllAdminByPhone(String phone) {
+    String normalized = normalizePhone(phone);
+    return orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(normalized).stream()
+        .map(
+            o ->
+                toOrderMap(
+                    o,
+                    orderLineRepository.findByOrder_Id(o.getId()),
+                    null,
+                    userProfileRepository
+                        .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
+                        .orElse(null),
+                    false))
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listAllAdminByPhonePage(String phone, int page, int size) {
+    String normalized = normalizePhone(phone);
+    int safePage = Math.max(0, page);
+    int safeSize = Math.max(1, Math.min(50, size));
+    var pageResult =
+        orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(
+            normalized, PageRequest.of(safePage, safeSize));
+    List<Map<String, Object>> rows =
+        pageResult.getContent().stream()
+            .map(
+                o ->
+                    toOrderMap(
+                        o,
+                        orderLineRepository.findByOrder_Id(o.getId()),
+                        null,
+                        userProfileRepository
+                            .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
+                            .orElse(null),
+                        false))
+            .toList();
+    return Map.of(
+        "items", rows,
+        "page", safePage,
+        "size", safeSize,
+        "hasMore", pageResult.hasNext(),
+        "nextPage", pageResult.hasNext() ? safePage + 1 : safePage);
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> toAdminOrderMap(OrderEntity order, List<OrderLine> lines) {
+    UserProfile profile =
+        userProfileRepository
+            .findById(Objects.requireNonNull(order.getUser().getId(), "order user id"))
+            .orElse(null);
+    return toOrderMap(order, lines, null, profile, false);
+  }
+
+  @Transactional
+  public Map<String, Object> patchStatusAdmin(String orderId, String status) {
+    OrderEntity o =
+        orderRepository
+            .findById(Objects.requireNonNull(orderId, "orderId"))
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    OrderStatus next;
+    try {
+      next = OrderStatus.valueOf(status);
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid status");
+    }
+    OrderStatus before = o.getStatus();
+    if (!isOrderStatusTransitionAllowed(before, next)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "INVALID_STATUS_TRANSITION",
+          "Cannot move order from " + before + " to " + next);
+    }
+    o.setStatus(next);
+    o.setUpdatedAt(Instant.now());
+    orderRepository.save(o);
+    String actor = null;
+    var auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth != null && auth.isAuthenticated()) actor = auth.getName();
+    writeStatusAudit(o, before, next, "admin", actor, "admin_status_patch");
+    notificationService.notifyUser(
+        o.getUser().getId(),
+        "order_status",
+        "Your order status has changed",
+        "Your order " + o.getId() + " moved from " + before.name() + " to " + next.name() + ".",
+        "order",
+        o.getId(),
+        Map.of("from", before.name(), "to", next.name()));
+    UserProfile profile =
+        userProfileRepository
+            .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
+            .orElse(null);
+    return Map.of(
+        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true));
+  }
+
+  private static PaymentMethod parsePaymentMethod(String raw) {
+    if (raw == null || raw.isBlank()) return PaymentMethod.cod;
+    try {
+      return PaymentMethod.valueOf(raw.trim().toLowerCase());
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid payment method");
+    }
+  }
+
+  private static String normalizePaymentTxnId(String raw, UUID userId, PaymentMethod method) {
+    if (raw != null && !raw.isBlank()) return raw.trim();
+    if (method == PaymentMethod.cod) {
+      return "txn_cod_" + userId.toString().substring(0, 8) + "_" + Instant.now().toEpochMilli();
+    }
+    return null;
+  }
+
+  private static String normalizePhone(String phoneE164) {
+    String p = phoneE164.trim();
+    if (!p.startsWith("+")) {
+      p = p.replaceAll("[^0-9]", "");
+    }
+    return p;
+  }
+
+  private void decrementStock(List<CartItem> lines, Map<String, Product> productsById) {
+    for (CartItem ci : lines) {
+      Product p = productsById.get(ci.getProduct().getId());
+      if (p == null || !p.isPublished()) continue;
+      if (p.getType() == ProductType.vehicle) continue;
+      int left = p.getStockQuantity() - ci.getQuantity();
+      if (left < 0) {
+        throw new ApiException(
+            HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "Insufficient stock for " + p.getName());
+      }
+      p.setStockQuantity(left);
+      productRepository.save(p);
+    }
+  }
+
+  private void writeStatusAudit(
+      OrderEntity order,
+      OrderStatus fromStatus,
+      OrderStatus toStatus,
+      String actorType,
+      String actorId,
+      String reason) {
+    OrderStatusAuditEntity audit = new OrderStatusAuditEntity();
+    audit.setOrder(order);
+    audit.setFromStatus(fromStatus);
+    audit.setToStatus(toStatus);
+    audit.setChangedByType(actorType);
+    audit.setChangedById(actorId);
+    audit.setReason(reason);
+    orderStatusAuditRepository.save(audit);
+  }
+
+  private void writePaymentEvent(
+      OrderEntity order,
+      PaymentTransactionEntity transaction,
+      String provider,
+      String providerEventId,
+      String eventType) {
+    PaymentEventEntity event = new PaymentEventEntity();
+    event.setOrder(order);
+    event.setTransaction(transaction);
+    event.setProvider(provider);
+    event.setProviderEventId(providerEventId);
+    event.setEventType(eventType);
+    event.setPayload(JsonNodeFactory.instance.objectNode());
+    paymentEventRepository.save(event);
+  }
+
+  @Transactional
+  public void applyPaidEffects(OrderEntity order) {
+    if (order == null || order.getPaymentStatus() != PaymentStatus.paid) return;
+    List<OrderLine> lines = orderLineRepository.findByOrder_Id(order.getId());
+    List<String> productIds = lines.stream().map(OrderLine::getProductId).distinct().toList();
+    Map<String, Product> productsById =
+        productRepository.findAllByIdInForUpdate(productIds).stream()
+            .collect(Collectors.toMap(Product::getId, p -> p));
+    for (OrderLine ol : lines) {
+      Product p = productsById.get(ol.getProductId());
+      if (p == null || !p.isPublished() || p.getType() == ProductType.vehicle) continue;
+      int left = p.getStockQuantity() - ol.getQuantity();
+      if (left < 0) {
+        throw new ApiException(
+            HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "Insufficient stock for " + p.getName());
+      }
+      p.setStockQuantity(left);
+      productRepository.save(p);
+    }
+    UUID userId = Objects.requireNonNull(order.getUser().getId(), "order user id");
+    CartService.CartSnapshot snap =
+        cartService.resolveCart(Optional.of(userId), Optional.empty(), false);
+    if (snap.cart() != null) {
+      cartService.emptyCart(snap.cart());
+    }
+  }
+
+  @Transactional
+  public int reconcilePendingPayments(int olderThanMinutes) {
+    Instant cutoff = Instant.now().minusSeconds(Math.max(1, olderThanMinutes) * 60L);
+    List<OrderEntity> stale =
+        orderRepository.findByPaymentStatusAndPlacedAtBeforeOrderByPlacedAtAsc(
+            PaymentStatus.pending, cutoff);
+    int changed = 0;
+    for (OrderEntity order : stale) {
+      OrderEntity locked =
+          orderRepository
+              .findByIdForUpdate(Objects.requireNonNull(order.getId(), "order id"))
+              .orElse(null);
+      if (locked == null || locked.getPaymentStatus() != PaymentStatus.pending) continue;
+      PaymentStatus beforePay = locked.getPaymentStatus();
+      OrderStatus beforeStatus = locked.getStatus();
+      locked.setPaymentStatus(PaymentStatus.failed);
+      locked.setPaymentLastError("reconciliation_timeout");
+      if (locked.getStatus() == OrderStatus.placed) {
+        locked.setStatus(OrderStatus.cancelled);
+      }
+      orderRepository.save(locked);
+      writePaymentEvent(locked, null, "reconciliation", "reco_" + locked.getId(), "payment_timeout");
+      writeStatusAudit(locked, beforeStatus, locked.getStatus(), "system", null, "reconciliation");
+      notificationService.notifyUser(
+          locked.getUser().getId(),
+          "payment",
+          "Payment timed out",
+          "Payment for order " + locked.getId() + " timed out. Please retry.",
+          "order",
+          locked.getId(),
+          Map.of("paymentStatus", locked.getPaymentStatus().name(), "orderStatus", locked.getStatus().name()));
+      if (beforePay != locked.getPaymentStatus()) {
+        changed++;
+      }
+    }
+    return changed;
+  }
+
+  @Transactional
+  public void writeAuditFromPayment(
+      OrderEntity order,
+      OrderStatus beforeOrderStatus,
+      PaymentStatus beforePaymentStatus,
+      String actor,
+      String reason) {
+    writeStatusAudit(order, beforeOrderStatus, order.getStatus(), actor, null, reason);
+    if (beforePaymentStatus != order.getPaymentStatus()) {
+      writePaymentEvent(
+          order,
+          null,
+          "payment",
+          "evt_" + Instant.now().toEpochMilli(),
+          "status_" + order.getPaymentStatus().name());
+      notificationService.notifyUser(
+          order.getUser().getId(),
+          "payment",
+          "Payment update",
+          "Payment for order " + order.getId() + " is " + order.getPaymentStatus().name() + ".",
+          "order",
+          order.getId(),
+          Map.of("paymentStatus", order.getPaymentStatus().name(), "orderStatus", order.getStatus().name()));
+    }
+  }
+
+  @Transactional
+  public PaymentTransactionEntity createPaymentTransactionForOrder(
+      UUID userId, String orderId, String provider) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    OrderEntity order =
+        orderRepository
+            .findByIdAndUser_Id(orderId, uid)
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    OrderEntity locked =
+        orderRepository
+            .findByIdForUpdate(order.getId())
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    if (locked.getPaymentMethod() == PaymentMethod.cod) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "COD orders do not use online gateway");
+    }
+    if (locked.getPaymentStatus() == PaymentStatus.paid) {
+      throw new ApiException(HttpStatus.CONFLICT, "PAYMENT_ALREADY_COMPLETED", "Order is already paid");
+    }
+    if (!isRetryEligibleForGateway(locked)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "PAYMENT_RETRY_NOT_ALLOWED",
+          "Order is not in a retryable state for online payment");
+    }
+    OrderStatus beforeStatus = locked.getStatus();
+    if (beforeStatus == OrderStatus.cancelled) {
+      locked.setStatus(OrderStatus.placed);
+      writeStatusAudit(
+          locked,
+          beforeStatus,
+          locked.getStatus(),
+          "user",
+          uid.toString(),
+          "payment_retry_initiated");
+      notificationService.notifyUser(
+          uid,
+          "payment",
+          "Payment retry started",
+          "You can retry payment for order " + locked.getId() + ".",
+          "order",
+          locked.getId(),
+          Map.of("status", locked.getStatus().name()));
+    }
+    int nextAttempt = Math.max(1, locked.getPaymentAttemptCount() + 1);
+    PaymentTransactionEntity transaction = new PaymentTransactionEntity();
+    transaction.setOrder(locked);
+    transaction.setProvider(provider);
+    transaction.setStatus(PaymentTransactionStatus.created);
+    transaction.setAmountInr(locked.getTotalInr());
+    transaction.setCurrency(locked.getCurrency());
+    transaction.setAttemptNo(nextAttempt);
+    transaction = paymentTransactionRepository.save(transaction);
+    locked.setPaymentAttemptCount(nextAttempt);
+    locked.setPaymentProvider(provider);
+    locked.setPaymentStatus(PaymentStatus.pending);
+    locked.setPaymentLastError(null);
+    locked.setPaymentTxnId(null);
+    locked.setPaymentOrderRef(null);
+    orderRepository.save(locked);
+    writePaymentEvent(
+        locked,
+        transaction,
+        provider,
+        "txn_create_" + transaction.getId(),
+        "transaction_created");
+    return transaction;
+  }
+
+  @Transactional
+  public void attachProviderOrderToTransaction(
+      PaymentTransactionEntity transaction, String providerOrderId, String receiptId) {
+    PaymentTransactionEntity tx =
+        paymentTransactionRepository
+            .findById(Objects.requireNonNull(transaction.getId(), "transaction id"))
+            .orElseThrow(
+                () ->
+                    new ApiException(
+                        HttpStatus.NOT_FOUND, "NOT_FOUND", "Payment transaction not found"));
+    tx.setProviderOrderId(providerOrderId);
+    paymentTransactionRepository.save(tx);
+    OrderEntity order =
+        orderRepository
+            .findByIdForUpdate(tx.getOrder().getId())
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    order.setPaymentOrderRef(providerOrderId);
+    orderRepository.save(order);
+    writePaymentEvent(order, tx, tx.getProvider(), receiptId, "provider_order_created");
+  }
+
+  private static boolean isOrderStatusTransitionAllowed(OrderStatus from, OrderStatus to) {
+    if (from == to) return true;
+    if (from == OrderStatus.placed) {
+      return to == OrderStatus.confirmed
+          || to == OrderStatus.processing
+          || to == OrderStatus.cancelled
+          || to == OrderStatus.refunded;
+    }
+    if (from == OrderStatus.confirmed) {
+      return to == OrderStatus.processing || to == OrderStatus.cancelled || to == OrderStatus.refunded;
+    }
+    if (from == OrderStatus.processing) {
+      return to == OrderStatus.shipped || to == OrderStatus.cancelled || to == OrderStatus.refunded;
+    }
+    if (from == OrderStatus.shipped) {
+      return to == OrderStatus.delivered || to == OrderStatus.refunded;
+    }
+    // terminal statuses cannot move forward
+    return false;
+  }
+
+  private static boolean isRetryEligibleForGateway(OrderEntity order) {
+    PaymentStatus paymentStatus = order.getPaymentStatus();
+    OrderStatus orderStatus = order.getStatus();
+    boolean retryablePaymentState =
+        paymentStatus == PaymentStatus.pending
+            || paymentStatus == PaymentStatus.failed
+            || paymentStatus == PaymentStatus.cancelled;
+    if (!retryablePaymentState) {
+      return false;
+    }
+    return orderStatus == OrderStatus.placed || orderStatus == OrderStatus.cancelled;
+  }
+}

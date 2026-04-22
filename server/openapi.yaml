@@ -1,0 +1,287 @@
+openapi: 3.0.3
+info:
+  title: CARNALYSYS API
+  description: |
+    Spring Boot API (reference). **Refresh**: httpOnly cookie `refreshToken` (also accepts body for tools).
+    **Admin**: `admin@carnalysys.com` / `admin123` when seeded.
+  version: 2.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+  - url: /api/v1
+tags:
+  - name: Auth
+  - name: User
+  - name: Products
+  - name: Cart
+  - name: Orders
+  - name: Admin
+paths:
+  /health:
+    get:
+      summary: Health
+      tags: [Auth]
+      responses: { '200': { description: OK } }
+  /auth/send-otp:
+    post:
+      tags: [Auth]
+      summary: Send OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: '9876543210' }
+      responses: { '200': { description: OK } }
+  /auth/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify OTP (sets refresh httpOnly cookie)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp]
+              properties:
+                phone: { type: string }
+                otp: { type: string, example: '123456' }
+      responses: { '200': { description: Returns accessToken + user in envelope.data } }
+  /auth/refresh-token:
+    post:
+      tags: [Auth]
+      summary: New access token (cookie or body.refreshToken)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses: { '200': { description: OK } }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (clears refresh cookie)
+      responses: { '200': { description: OK } }
+  /user/profile:
+    get:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: OK } }
+    put:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string }
+      responses: { '200': { description: OK } }
+  /products:
+    get:
+      tags: [Products]
+      summary: List products
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: sort, in: query, schema: { enum: [price_asc, price_desc] } }
+        - { name: carModel, in: query, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /products/{id}:
+    get:
+      tags: [Products]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK }, '404': { description: Not found } }
+  /categories:
+    get:
+      tags: [Products]
+      responses: { '200': { description: OK } }
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Cart (Bearer or guest cookie / X-Guest-Session)
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Cart]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId]
+              properties:
+                productId: { type: string }
+                quantity: { type: integer, default: 1 }
+      responses: { '200': { description: OK } }
+  /cart/{itemId}:
+    put:
+      tags: [Cart]
+      parameters:
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity: { type: integer }
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Cart]
+      parameters:
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /wishlist:
+    get:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: OK } }
+  /wishlist/toggle:
+    post:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId]
+              properties:
+                productId: { type: string }
+      responses: { '200': { description: OK } }
+  /orders:
+    get:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addressId: { type: string }
+      responses: { '200': { description: OK } }
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /addresses:
+    get:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: OK } }
+  /addresses/{id}:
+    put:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [User]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/auth/login:
+    post:
+      tags: [Admin]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses: { '200': { description: OK } }
+  /admin/products:
+    get:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+  /admin/products/{id}:
+    put:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/products/{id}/publish:
+    patch:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/categories:
+    get:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+  /admin/categories/{id}:
+    put:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+    delete:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/orders:
+    get:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+  /admin/orders/{id}/status:
+    patch:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/users:
+    get:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+  /admin/users/{id}:
+    get:
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses: { '200': { description: OK } }
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      responses: { '200': { description: OK } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,83 @@
+-- Seed categories
+INSERT INTO categories (slug, name, display_order) VALUES ('body', 'Body', 10) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('brakes', 'Brakes', 20) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('electrical', 'Electrical', 30) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('engine', 'Engine', 40) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('filters', 'Filters', 50) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('fluids', 'Fluids', 60) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('ignition', 'Ignition', 70) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('lighting', 'Lighting', 80) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('suspension', 'Suspension', 90) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('transmission', 'Transmission', 100) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('wheels', 'Wheels', 110) ON CONFLICT (slug) DO NOTHING;
+INSERT INTO categories (slug, name, display_order) VALUES ('vehicles', 'Vehicles', 120) ON CONFLICT (slug) DO NOTHING;
+
+-- Seed part products
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('brk-front-001', 'brakes', 'part', 'BRK-F-001', 'Ceramic Brake Pads (Front)', 4299, 48, true, 'brakes', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('oil-syn-5w30', 'fluids', 'part', 'OIL-5W30-4L', 'Synthetic 5W-30 Engine Oil (4L)', 2149, 120, true, 'oil', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('flt-air-001', 'filters', 'part', 'FLT-AIR-88', 'OEM Air Filter Assembly', 899, 64, true, 'filter', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('led-h7-kit', 'lighting', 'part', 'LED-H7-KIT', 'LED Headlamp Kit — H7', 6499, 22, true, 'led', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('wpr-24', 'body', 'part', 'WPR-24-U', 'Premium Wiper Blade Set (24"+16")', 1299, 75, true, 'wipers', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('cool-1l', 'fluids', 'part', 'COOL-1L', 'Long-life Coolant (1L)', 449, 200, true, 'coolant', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('spk-ngk-4', 'ignition', 'part', 'SPK-NGK-4', 'NGK Iridium Spark Plugs (Set of 4)', 1899, 36, true, 'spark', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('tire-195-55', 'wheels', 'part', 'TIR-195-55R16', 'All-season Tire 195/55 R16', 5299, 16, true, 'tire', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('alt-120a', 'electrical', 'part', 'ALT-120A', '120A Alternator (Reman)', 12499, 8, true, 'alternator', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('clutch-kit', 'transmission', 'part', 'CLU-MNL-001', 'Clutch Kit — Manual', 8999, 11, true, 'clutch', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('shock-front', 'suspension', 'part', 'SUS-FR-01', 'Front Shock Absorber Pair', 6799, 14, true, 'suspension', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('belt-serp', 'engine', 'part', 'BLT-SRP-6K', 'Serpentine Drive Belt', 1599, 42, true, 'belt', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('mir-rh-pwr', 'body', 'part', 'MIR-RH-PWR', 'Power Side Mirror — RH', 3499, 19, true, 'mirror', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('bat-60ah', 'electrical', 'part', 'BAT-60AH-AGM', 'AGM Battery 60Ah', 7899, 27, true, 'alternator', NULL, '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr, stock_quantity = EXCLUDED.stock_quantity;
+
+-- Seed vehicle products + specs
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-creta-23', 'vehicles', 'vehicle', 'veh-creta-23', 'Hyundai Creta SX (Petrol)', 1425000, 1, true, NULL, 'Single-owner city use, full agency service history.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-creta-23', 2023, 'second-hand', 18500, 'Petrol', 'Automatic', 'Bangalore', 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1400&q=82&fm=jpg', 'White SUV on coastal road', '[{"src": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1000&q=82&fm=jpg", "alt": "Exterior front three-quarter"}, {"src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1000&q=82&fm=jpg", "alt": "Sports car studio detail"}]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-nexon-ev-24', 'vehicles', 'vehicle', 'veh-nexon-ev-24', 'Tata Nexon EV Max', 1680000, 1, true, NULL, 'Demo drive mileage only; registered first owner.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-nexon-ev-24', 2024, 'first-hand', 4200, 'Electric', 'Automatic', 'Mumbai', 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1400&q=82&fm=jpg', 'Modern EV crossover exterior', '[{"src": "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1000&q=82&fm=jpg", "alt": "EV exterior"}]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-slavia-22', 'vehicles', 'vehicle', 'veh-slavia-22', 'Škoda Slavia Style TSI', 1189000, 1, true, NULL, 'Highway-mileage log; clutch and brakes inspected.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-slavia-22', 2022, 'second-hand', 34200, 'Petrol', 'Manual', 'Delhi NCR', 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=1400&q=82&fm=jpg', 'Sedan with premium wheels', '[]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-city-21', 'vehicles', 'vehicle', 'veh-city-21', 'Honda City ZX CVT', 1295000, 1, true, NULL, 'Corporate lease return with stamped service booklet.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-city-21', 2021, 'second-hand', 45800, 'Petrol', 'CVT', 'Hyderabad', 'https://images.unsplash.com/photo-1489824904134-9abaeb61134c?w=1400&q=82&fm=jpg', 'Silver sedan in urban setting', '[]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-thar-24', 'vehicles', 'vehicle', 'veh-thar-24', 'Mahindra Thar LX Diesel 4x4', 1520000, 1, true, NULL, 'Accessory pack includes hard top and mats.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-thar-24', 2024, 'first-hand', 8900, 'Diesel', 'Manual', 'Pune', 'https://images.unsplash.com/photo-153347335933a-381c84afb79d?w=1400&q=82&fm=jpg', '4x4 SUV outdoor', '[]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+INSERT INTO products (id, category_slug, type, sku, name, price_inr, stock_quantity, published, image_key, description, metadata) VALUES ('veh-virtus-23', 'vehicles', 'vehicle', 'veh-virtus-23', 'Volkswagen Virtus GT Plus', 1365000, 1, true, NULL, 'DSG service done at authorised workshop.', '{}'::jsonb) ON CONFLICT (id) DO UPDATE SET price_inr = EXCLUDED.price_inr;
+INSERT INTO product_vehicle_specs (product_id, model_year, condition, odometer_km, fuel, transmission, location, primary_image_url, image_alt, gallery) VALUES ('veh-virtus-23', 2023, 'second-hand', 22100, 'Petrol', 'DSG', 'Chennai', 'https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=1400&q=82&fm=jpg', 'Contemporary sedan exterior', '[]'::jsonb) ON CONFLICT (product_id) DO UPDATE SET model_year = EXCLUDED.model_year, odometer_km = EXCLUDED.odometer_km;
+
+-- Fitment labels
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('brk-front-001', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('brk-front-001', 'Hyundai Creta') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('brk-front-001', 'Maruti Swift') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('brk-front-001', 'Honda Amaze') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('oil-syn-5w30', 'All vehicles') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('flt-air-001', 'Honda City') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('flt-air-001', 'Honda Amaze') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('flt-air-001', 'Maruti Baleno') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('led-h7-kit', 'VW Taigun') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('led-h7-kit', 'Hyundai Creta') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('led-h7-kit', 'Tata Nexon') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('wpr-24', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('wpr-24', 'Maruti Swift') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('wpr-24', 'Honda City') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('cool-1l', 'All vehicles') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('spk-ngk-4', 'Honda City') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('spk-ngk-4', 'Maruti Baleno') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('spk-ngk-4', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('tire-195-55', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('tire-195-55', 'Honda Amaze') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('tire-195-55', 'Maruti Swift') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('alt-120a', 'Mahindra XUV700') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('alt-120a', 'Tata Nexon') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('alt-120a', 'Hyundai Creta') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('clutch-kit', 'Honda City') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('clutch-kit', 'Maruti Swift') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('clutch-kit', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('shock-front', 'VW Taigun') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('shock-front', 'Hyundai Creta') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('shock-front', 'Tata Nexon') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('belt-serp', 'All vehicles') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('mir-rh-pwr', 'Maruti Baleno') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('mir-rh-pwr', 'Hyundai i20') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('mir-rh-pwr', 'Honda Amaze') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('bat-60ah', 'Honda City') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('bat-60ah', 'VW Taigun') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('bat-60ah', 'Mahindra XUV700') ON CONFLICT DO NOTHING;
+INSERT INTO product_fitment_labels (product_id, label) VALUES ('bat-60ah', 'All vehicles') ON CONFLICT DO NOTHING;

@@ -1,0 +1,500 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ChevronDown, Package } from 'lucide-react'
+import { publicUrl } from '../lib/publicUrl'
+import { useAuth } from '../context/useAuth'
+import { useNotifications } from '../context/useNotifications.js'
+import * as orderService from '../services/orderService.js'
+import * as paymentService from '../services/paymentService.js'
+import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
+import { apiV1Base } from '../api/client.js'
+
+const ORDER_STATUS_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'placed', label: 'Placed' },
+  { key: 'processing', label: 'Processing' },
+  { key: 'shipped', label: 'Shipped' },
+  { key: 'delivered', label: 'Delivered' },
+  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'refund', label: 'Refund' },
+]
+const PAGE_SIZE = 3
+
+function formatInr(n) {
+  if (n == null) return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(Number(n))
+}
+
+function statusStyle(s) {
+  switch (s) {
+    case 'delivered':
+      return 'bg-accent-muted text-accent ring-accent/35'
+    case 'cancelled':
+    case 'refunded':
+      return 'bg-flare-muted text-flare ring-flare/30'
+    case 'shipped':
+    case 'processing':
+    case 'confirmed':
+      return 'bg-hud/15 text-hud ring-hud/35'
+    default:
+      return 'bg-steel/50 text-mist ring-steel/60'
+  }
+}
+
+function paymentStatusStyle(paymentStatus) {
+  const status = String(paymentStatus || '').toLowerCase()
+  switch (status) {
+    case 'paid':
+    case 'authorized':
+      return 'bg-accent-muted text-accent ring-accent/35'
+    case 'failed':
+    case 'cancelled':
+      return 'bg-flare-muted text-flare ring-flare/30'
+    case 'refunded':
+      return 'bg-hud/15 text-hud ring-hud/35'
+    default:
+      return 'bg-steel/50 text-mist ring-steel/60'
+  }
+}
+
+function canRetryPayment(paymentStatus) {
+  const status = String(paymentStatus || '').toLowerCase()
+  return status === 'pending' || status === 'failed' || status === 'cancelled'
+}
+
+export function OrdersPage() {
+  const { user, authHydrated, openAuth } = useAuth()
+  const [searchParams] = useSearchParams()
+  const { items: notifications } = useNotifications()
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [expandedOrderId, setExpandedOrderId] = useState(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [nextPage, setNextPage] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [retryingOrderId, setRetryingOrderId] = useState(null)
+  const [retryError, setRetryError] = useState(null)
+  const [retryErrorOrderId, setRetryErrorOrderId] = useState(null)
+  const apiOn = Boolean(apiV1Base())
+
+  const filteredItems = items.filter((o) => {
+    const status = String(o?.status || '').toLowerCase()
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'refund') return status === 'refund' || status === 'refunded'
+    if (statusFilter === 'placed') return status === 'placed' || status === 'created' || status === 'confirmed'
+    if (statusFilter === 'delivered') return status === 'delivered' || status === 'deliverd'
+    return status === statusFilter
+  })
+  const orderNotifications = notifications.filter(
+    (n) => n?.topic === 'order_status' || n?.topic === 'payment' || n?.sourceType === 'order',
+  )
+
+  function focusOrder(orderId) {
+    if (!orderId) return
+    setExpandedOrderId(orderId)
+    window.setTimeout(() => {
+      const el = document.getElementById(`order-${orderId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 50)
+  }
+
+  const load = useCallback(async () => {
+    if (!apiOn || !user) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await orderService.listOrders({ page: 0, size: PAGE_SIZE })
+      setItems(result.items || [])
+      setHasMore(Boolean(result.hasMore))
+      setNextPage(Number.isFinite(result.nextPage) ? result.nextPage : 1)
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+      setItems([])
+      setHasMore(false)
+      setNextPage(1)
+    } finally {
+      setLoading(false)
+    }
+  }, [apiOn, user])
+
+  const loadMore = useCallback(async () => {
+    if (!apiOn || !user || !hasMore || loadingMore) return
+    setLoadingMore(true)
+    setError(null)
+    try {
+      const result = await orderService.listOrders({ page: nextPage, size: PAGE_SIZE })
+      setItems((prev) => [...prev, ...(result.items || [])])
+      setHasMore(Boolean(result.hasMore))
+      setNextPage(Number.isFinite(result.nextPage) ? result.nextPage : nextPage + 1)
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [apiOn, user, hasMore, loadingMore, nextPage])
+
+  useEffect(() => {
+    if (!authHydrated) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
+    void load()
+  }, [authHydrated, user, load])
+
+  useEffect(() => {
+    const onFocus = () => {
+      if (user && apiOn) void load()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [user, apiOn, load])
+
+  useEffect(() => {
+    const orderId = searchParams.get('focusOrder')
+    if (!orderId || items.length === 0) return
+    if (items.some((o) => o.id === orderId)) {
+      focusOrder(orderId)
+    }
+  }, [searchParams, items])
+
+  async function ensureRazorpayScript() {
+    if (window.Razorpay) return true
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-razorpay-checkout="1"]')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay SDK')), {
+          once: true,
+        })
+        return
+      }
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.dataset.razorpayCheckout = '1'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Failed to load Razorpay SDK'))
+      document.body.appendChild(script)
+    })
+    return Boolean(window.Razorpay)
+  }
+
+  async function openRazorpayRetryCheckout(order) {
+    const init = await paymentService.initiatePayment({ orderId: order.id })
+    const sdkReady = await ensureRazorpayScript()
+    if (!sdkReady || !window.Razorpay) throw new Error('Razorpay SDK not available')
+    await new Promise((resolve, reject) => {
+      const rz = new window.Razorpay({
+        key: init.keyId,
+        amount: init.amount,
+        currency: init.currency || 'INR',
+        name: 'Carnalysys',
+        description: `Order ${order.id}`,
+        order_id: init.razorpayOrderId,
+        prefill: {
+          name: user?.displayName || '',
+          contact: user?.phone || user?.phoneE164 || '',
+          email: user?.email || '',
+        },
+        notes: {
+          order_id: order.id,
+          transaction_id: init.transactionId,
+        },
+        handler: async (response) => {
+          try {
+            await paymentService.confirmPayment({
+              orderId: order.id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            })
+            resolve()
+          } catch (err) {
+            reject(err)
+          }
+        },
+        modal: {
+          ondismiss: () => reject(new Error('Payment cancelled')),
+        },
+      })
+      rz.open()
+    })
+  }
+
+  async function retryPayment(order) {
+    if (!canRetryPayment(order?.paymentStatus)) return
+    setRetryingOrderId(order.id)
+    setRetryError(null)
+    setRetryErrorOrderId(null)
+    try {
+      await openRazorpayRetryCheckout(order)
+    } catch (e) {
+      setRetryError(getFetchErrorMessage(e))
+      setRetryErrorOrderId(order.id)
+    } finally {
+      await load()
+      setRetryingOrderId(null)
+    }
+  }
+
+  if (!authHydrated) {
+    return (
+      <div className="min-h-svh bg-slate pt-[calc(var(--nav-h)+2rem)] text-center text-mist">
+        <p className="font-sans text-sm">Loading…</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    openAuth()
+    return (
+      <div className="min-h-svh bg-slate pt-[calc(var(--nav-h)+2rem)] text-center text-mist">
+        <p className="font-sans text-sm">Sign in to view your orders.</p>
+      </div>
+    )
+  }
+
+  if (!apiOn) {
+    return (
+      <div className="min-h-svh bg-slate pt-[calc(var(--nav-h)+2rem)] text-center text-mist">
+        <p className="font-sans text-sm">Orders require the API. Set VITE_API_BASE or run the backend.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative min-h-svh overflow-hidden bg-slate pt-[calc(var(--nav-h)+1rem)] pb-20">
+      <img
+        src={publicUrl('images/engine.jpg')}
+        alt=""
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-15"
+        loading="lazy"
+        aria-hidden
+      />
+      <div className="pointer-events-none absolute inset-0 bg-slate/85" aria-hidden />
+      <div className="relative z-[1] mx-auto max-w-3xl px-4">
+        <Link
+          to="/"
+          className="mb-6 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-hud transition-colors hover:text-accent"
+        >
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden />
+          Back to home
+        </Link>
+
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-hud">Shop</p>
+            <h1 className="mt-2 font-display text-3xl font-black uppercase tracking-wide text-fog">
+              My orders
+            </h1>
+            <p className="mt-2 font-sans text-sm text-mist">
+              Status updates when the team processes your order. Refresh or return here to see the latest.
+            </p>
+          </div>
+          <Link
+            to="/account"
+            className="rounded-xl border border-steel/80 px-4 py-2 font-sans text-xs font-semibold text-fog transition-colors hover:border-accent/40"
+          >
+            Account & addresses
+          </Link>
+        </header>
+
+        {orderNotifications.length > 0 ? (
+          <div className="mb-5 rounded-2xl border border-hud/35 bg-hud/10 p-4">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">Recent updates</p>
+            <ul className="space-y-2">
+              {orderNotifications.slice(0, 3).map((n) => (
+                <li key={n.id} className="rounded-lg border border-steel/50 bg-slate/35 px-3 py-2">
+                  <p className="text-xs font-semibold text-fog">{n.title}</p>
+                  <p className="mt-0.5 text-xs text-mist">{n.body}</p>
+                  {n?.sourceId ? (
+                    <button
+                      type="button"
+                      onClick={() => focusOrder(String(n.sourceId))}
+                      className="mt-2 font-sans text-[11px] font-semibold text-accent hover:underline"
+                    >
+                      Open this order timeline
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {!loading && !error && items.length > 0 ? (
+          <div className="mb-5 flex flex-wrap gap-2">
+            {ORDER_STATUS_FILTERS.map((f) => {
+              const active = statusFilter === f.key
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setStatusFilter(f.key)}
+                  className={`rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                    active
+                      ? 'border-accent/50 bg-accent/20 text-accent'
+                      : 'border-steel/70 bg-ink/60 text-mist hover:border-hud/50 hover:text-fog'
+                  }`}
+                  aria-pressed={active}
+                >
+                  {f.label}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <p className="font-sans text-sm text-mist">Loading orders…</p>
+        ) : error ? (
+          <p className="font-sans text-sm text-flare">{error}</p>
+        ) : items.length === 0 ? (
+          <div className="rounded-2xl border border-steel/70 bg-ink/95 p-10 text-center shadow-lg backdrop-blur-sm">
+            <Package className="mx-auto h-12 w-12 text-mist" strokeWidth={1.25} />
+            <p className="mt-4 font-sans text-fog">No orders yet.</p>
+            <Link
+              to="/catalog"
+              className="mt-4 inline-block font-sans text-sm font-semibold text-accent hover:underline"
+            >
+              Browse catalog
+            </Link>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="rounded-2xl border border-steel/70 bg-ink/95 p-8 text-center shadow-lg backdrop-blur-sm">
+            <p className="font-sans text-sm text-mist">No orders found for this status.</p>
+          </div>
+        ) : (
+          <>
+            <ul className="space-y-5">
+              {filteredItems.map((o) => {
+              const expanded = expandedOrderId === o.id
+              return (
+                <li
+                  key={o.id}
+                  id={`order-${o.id}`}
+                  className="overflow-hidden rounded-2xl border border-steel/70 bg-ink/95 shadow-lg backdrop-blur-sm"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full flex-col gap-3 border-b border-steel/50 px-5 py-4 text-left sm:flex-row sm:items-center sm:justify-between"
+                    onClick={() => setExpandedOrderId((prev) => (prev === o.id ? null : o.id))}
+                    aria-expanded={expanded}
+                  >
+                    <div>
+                      <p className="font-mono text-xs text-mist">{o.id}</p>
+                      <p className="mt-1 text-sm text-mist">
+                        {o.createdAt ? new Date(o.createdAt).toLocaleString() : '—'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${statusStyle(o.status)}`}
+                      >
+                        {o.status}
+                      </span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${paymentStatusStyle(o.paymentStatus)}`}
+                      >
+                        Payment: {o.paymentStatus || 'pending'}
+                      </span>
+                      <span className="font-display text-lg font-bold tabular-nums text-fog">{formatInr(o.total)}</span>
+                      <ChevronDown
+                        className={`h-4 w-4 text-mist transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        strokeWidth={1.75}
+                        aria-hidden
+                      />
+                    </div>
+                  </button>
+                  {expanded ? (
+                    <>
+                      {retryError && retryErrorOrderId === o.id ? (
+                        <p className="mx-5 mt-3 rounded-lg border border-flare/40 bg-flare-muted px-3 py-2 text-xs text-fog">
+                          {retryError}
+                        </p>
+                      ) : null}
+                      <div className="overflow-x-auto px-5 py-3">
+                        <table className="w-full min-w-[320px] text-left text-sm">
+                          <thead>
+                            <tr className="font-mono text-[10px] uppercase tracking-wider text-mist">
+                              <th className="py-2 font-medium">Item</th>
+                              <th className="py-2 font-medium text-right">Qty</th>
+                              <th className="py-2 font-medium text-right">Line</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-steel/40 text-mist">
+                            {(o.lines || []).map((line, i) => (
+                              <tr key={`${o.id}-${i}`}>
+                                <td className="py-2 pr-2">
+                                  <span className="font-medium text-fog">{line.productName || line.productId}</span>
+                                  {line.sku ? (
+                                    <span className="mt-0.5 block font-mono text-[10px] text-mist">{line.sku}</span>
+                                  ) : null}
+                                </td>
+                                <td className="py-2 text-right tabular-nums">{line.quantity}</td>
+                                <td className="py-2 text-right tabular-nums text-fog">{formatInr(line.lineTotal)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {Array.isArray(o.statusHistory) && o.statusHistory.length > 0 ? (
+                        <div className="border-t border-steel/40 px-5 py-4">
+                          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">Order updates</p>
+                          <ul className="space-y-2">
+                            {o.statusHistory.map((h, idx) => (
+                              <li key={`${o.id}-hist-${idx}`} className="rounded-lg border border-steel/50 bg-slate/30 px-3 py-2 text-xs text-mist">
+                                <span className="font-semibold text-fog">{h.to}</span>
+                                {h.from ? <span> (from {h.from})</span> : null}
+                                {h.reason ? <span> · {h.reason}</span> : null}
+                                <span className="ml-2 font-mono text-[10px] text-mist/80">{h.createdAt ? new Date(h.createdAt).toLocaleString() : ''}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {canRetryPayment(o.paymentStatus) ? (
+                        <div className="border-t border-steel/40 px-5 py-4">
+                          <button
+                            type="button"
+                            onClick={() => void retryPayment(o)}
+                            disabled={retryingOrderId === o.id}
+                            className="rounded-xl border border-accent/45 bg-accent/15 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {retryingOrderId === o.id ? 'Opening Razorpay…' : 'Retry payment'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </li>
+              )
+              })}
+            </ul>
+            {hasMore ? (
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className="rounded-xl border border-accent/40 bg-accent/15 px-5 py-2 font-mono text-xs uppercase tracking-wider text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

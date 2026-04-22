@@ -1,0 +1,118 @@
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { Route, Routes, useLocation } from 'react-router-dom'
+import { AdminRoute } from './components/auth/AdminRoute.jsx'
+import { AdminLayout } from './admin/AdminLayout.jsx'
+import { AdminOverviewPage } from './admin/pages/AdminOverviewPage.jsx'
+import { AdminProductsPage } from './admin/pages/AdminProductsPage.jsx'
+import { AdminCarsPage } from './admin/pages/AdminCarsPage.jsx'
+import { AdminOrdersPage } from './admin/pages/AdminOrdersPage.jsx'
+import { AdminCategoriesPage } from './admin/pages/AdminCategoriesPage.jsx'
+import { AdminUsersPage } from './admin/pages/AdminUsersPage.jsx'
+import { AdminEmployeesPage } from './admin/pages/AdminEmployeesPage.jsx'
+import { markHeroUserLeftHome } from './lib/heroSession'
+import { Navbar } from './components/layout/Navbar'
+import { AdminAppShell } from './components/layout/AdminAppShell.jsx'
+import { Footer } from './components/layout/Footer'
+import { Noise } from './components/ui/Noise'
+import { CartDrawer } from './components/cart/CartDrawer'
+import { AuthModals } from './components/auth/AuthModals'
+import { HomePage } from './pages/HomePage'
+import { CarsListPage } from './pages/CarsListPage'
+import { PartsCatalogPage } from './pages/PartsCatalogPage'
+import { AccountPage } from './pages/AccountPage'
+import { OrdersPage } from './pages/OrdersPage.jsx'
+import { FavoritesPage } from './pages/FavoritesPage'
+import { PolicyDocumentPage } from './pages/PolicyDocumentPage'
+
+function ScrollToHash() {
+  const { pathname, hash } = useLocation()
+
+  useLayoutEffect(() => {
+    if (!hash || hash === '#') return
+    const id = decodeURIComponent(hash.slice(1))
+    if (!id) return
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+    return () => clearTimeout(t)
+  }, [pathname, hash])
+
+  return null
+}
+
+function AppShell({ children }) {
+  return (
+    <div className="relative min-h-svh bg-ink text-fog antialiased [--nav-h:4.25rem] md:[--nav-h:4.75rem]">
+      <Noise />
+      <Navbar />
+      <ScrollToHash />
+      <main className="relative z-[1]">{children}</main>
+      <Footer />
+      <CartDrawer />
+      <AuthModals />
+    </div>
+  )
+}
+
+function SyncHeroReturnSession() {
+  const location = useLocation()
+  const prevPath = useRef(location.pathname)
+  useLayoutEffect(() => {
+    if (prevPath.current === '/' && location.pathname !== '/') {
+      markHeroUserLeftHome()
+    }
+    prevPath.current = location.pathname
+  }, [location.pathname])
+
+  // Full navigation away from Home (e.g. form using location.assign) never hits the router effect.
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      const p = window.location.pathname
+      if (p === '/' || p === '') {
+        markHeroUserLeftHome()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
+
+  return null
+}
+
+export default function App() {
+  return (
+    <>
+      <SyncHeroReturnSession />
+    <Routes>
+      <Route path="/catalog" element={<AppShell><PartsCatalogPage /></AppShell>} />
+      <Route path="/account" element={<AppShell><AccountPage /></AppShell>} />
+      <Route path="/orders" element={<AppShell><OrdersPage /></AppShell>} />
+      <Route path="/favorites" element={<AppShell><FavoritesPage /></AppShell>} />
+      <Route path="/cars" element={<AppShell><CarsListPage /></AppShell>} />
+      <Route path="/privacy" element={<AppShell><PolicyDocumentPage kind="privacy" /></AppShell>} />
+      <Route path="/terms" element={<AppShell><PolicyDocumentPage kind="terms" /></AppShell>} />
+      <Route path="/returns" element={<AppShell><PolicyDocumentPage kind="returns" /></AppShell>} />
+      <Route path="/warranty" element={<AppShell><PolicyDocumentPage kind="warranty" /></AppShell>} />
+      <Route path="/" element={<AppShell><HomePage /></AppShell>} />
+      <Route
+        path="/admin"
+        element={
+          <AdminAppShell>
+            <AdminRoute>
+              <AdminLayout />
+            </AdminRoute>
+          </AdminAppShell>
+        }
+      >
+        <Route index element={<AdminOverviewPage />} />
+        <Route path="products" element={<AdminProductsPage />} />
+        <Route path="cars" element={<AdminCarsPage />} />
+        <Route path="orders" element={<AdminOrdersPage />} />
+        <Route path="categories" element={<AdminCategoriesPage />} />
+        <Route path="users" element={<AdminUsersPage />} />
+        <Route path="employees" element={<AdminEmployeesPage />} />
+      </Route>
+    </Routes>
+    </>
+  )
+}

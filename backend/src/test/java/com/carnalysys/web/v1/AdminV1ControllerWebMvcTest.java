@@ -1,0 +1,399 @@
+package com.carnalysys.web.v1;
+
+import static com.carnalysys.testsupport.SecurityTestUtils.asAdmin;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.carnalysys.api.GlobalExceptionHandler;
+import com.carnalysys.service.AdminApiService;
+import com.carnalysys.service.NotificationService;
+import com.carnalysys.testsupport.ControllerSliceTestBase;
+import com.carnalysys.testsupport.JsonEnvelopeMatchers;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+@WebMvcTest(controllers = AdminV1Controller.class)
+@AutoConfigureMockMvc(addFilters = true)
+@Import(GlobalExceptionHandler.class)
+class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
+
+  @Autowired private MockMvc mockMvc;
+
+  @MockBean private AdminApiService adminApiService;
+  @MockBean private NotificationService notificationService;
+
+  @Test
+  void loginOk() throws Exception {
+    when(adminApiService.loginAndCreateSession("admin@test.dev", "secret")).thenReturn("sess-token");
+    mockMvc
+        .perform(
+            post("/api/v1/admin/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"admin@test.dev\",\"password\":\"secret\"}"))
+        .andExpect(status().isOk())
+        .andExpect(JsonEnvelopeMatchers.successTrue())
+        .andExpect(jsonPath("$.data.ok").value(true));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{}",
+        "{\"email\":\"\",\"password\":\"x\"}",
+        "{\"email\":\"not-an-email\",\"password\":\"x\"}",
+        "{\"email\":\"admin@test.dev\",\"password\":\"\"}"
+      })
+  void loginValidationFails(String body) throws Exception {
+    mockMvc
+        .perform(post("/api/v1/admin/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
+  }
+
+  @Test
+  void loginEmailTooLong() throws Exception {
+    String longEmail = "a".repeat(250) + "@x.co";
+    mockMvc
+        .perform(
+            post("/api/v1/admin/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"" + longEmail + "\",\"password\":\"x\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
+  }
+
+  @Test
+  void loginPasswordTooLong() throws Exception {
+    String longPw = "p".repeat(201);
+    mockMvc
+        .perform(
+            post("/api/v1/admin/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"a@b.co\",\"password\":\"" + longPw + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
+  }
+
+  @Test
+  void dashboardOk() throws Exception {
+    when(adminApiService.dashboard()).thenReturn(Map.of("ordersToday", 1));
+    mockMvc
+        .perform(get("/api/v1/admin/dashboard").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.ordersToday").value(1));
+  }
+
+  @Test
+  void productsListOk() throws Exception {
+    when(adminApiService.listProductsPage(0, 20, "created_desc"))
+        .thenReturn(Map.of("items", List.of(), "page", 0));
+    mockMvc
+        .perform(get("/api/v1/admin/products").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isArray());
+  }
+
+  @Test
+  void productGetOk() throws Exception {
+    when(adminApiService.getProductAdmin("p1")).thenReturn(Map.of("id", "p1"));
+    mockMvc
+        .perform(get("/api/v1/admin/products/p1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("p1"));
+  }
+
+  @Test
+  void createProductOk() throws Exception {
+    when(adminApiService.upsertProduct(any(), isNull())).thenReturn(Map.of("id", "new"));
+    mockMvc
+        .perform(
+            post("/api/v1/admin/products")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"N\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("new"));
+  }
+
+  @Test
+  void updateProductOk() throws Exception {
+    when(adminApiService.upsertProduct(any(), eq("p1"))).thenReturn(Map.of("id", "p1"));
+    mockMvc
+        .perform(
+            put("/api/v1/admin/products/p1")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"U\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("p1"));
+  }
+
+  @Test
+  void deleteProductOk() throws Exception {
+    when(adminApiService.deleteProduct("p1")).thenReturn(Map.of("removed", "p1"));
+    mockMvc
+        .perform(delete("/api/v1/admin/products/p1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(JsonEnvelopeMatchers.successTrue());
+  }
+
+  @Test
+  void publishOk() throws Exception {
+    when(adminApiService.patchPublish("p1", true)).thenReturn(Map.of("id", "p1", "published", true));
+    mockMvc
+        .perform(
+            patch("/api/v1/admin/products/p1/publish")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"published\":true}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.published").value(true));
+  }
+
+  @Test
+  void categoriesOk() throws Exception {
+    when(adminApiService.listCategories()).thenReturn(List.of());
+    mockMvc
+        .perform(get("/api/v1/admin/categories").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isArray());
+  }
+
+  @Test
+  void categoriesOverviewOk() throws Exception {
+    when(adminApiService.categoriesOverview()).thenReturn(Map.of("total", 3));
+    mockMvc
+        .perform(get("/api/v1/admin/categories/overview").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.total").value(3));
+  }
+
+  @Test
+  void createCategoryOk() throws Exception {
+    when(adminApiService.createCategory("Parts")).thenReturn(Map.of("id", "c1"));
+    mockMvc
+        .perform(
+            post("/api/v1/admin/categories")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Parts\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("c1"));
+  }
+
+  @Test
+  void updateCategoryOk() throws Exception {
+    when(adminApiService.updateCategory(eq("c1"), any())).thenReturn(Map.of("id", "c1"));
+    mockMvc
+        .perform(
+            put("/api/v1/admin/categories/c1")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"X\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("c1"));
+  }
+
+  @Test
+  void deleteCategoryOk() throws Exception {
+    when(adminApiService.deleteCategory("c1")).thenReturn(Map.of("removed", "c1"));
+    mockMvc
+        .perform(delete("/api/v1/admin/categories/c1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(JsonEnvelopeMatchers.successTrue());
+  }
+
+  @Test
+  void ordersOk() throws Exception {
+    when(adminApiService.listOrdersAdminPage(null, 0, 5))
+        .thenReturn(Map.of("items", List.of(), "page", 0, "size", 5, "hasMore", false, "nextPage", 0));
+    mockMvc
+        .perform(get("/api/v1/admin/orders").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isArray())
+        .andExpect(jsonPath("$.data.size").value(5))
+        .andExpect(jsonPath("$.data.hasMore").value(false));
+  }
+
+  @Test
+  void orderStatusOk() throws Exception {
+    when(adminApiService.patchOrderStatus("ord_1", "confirmed"))
+        .thenReturn(Map.of("order", Map.of("id", "ord_1")));
+    mockMvc
+        .perform(
+            patch("/api/v1/admin/orders/ord_1/status")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"confirmed\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.order.id").value("ord_1"));
+  }
+
+  @Test
+  void usersOk() throws Exception {
+    when(adminApiService.listUsers()).thenReturn(List.of());
+    mockMvc
+        .perform(get("/api/v1/admin/users").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isArray());
+  }
+
+  @Test
+  void logoutOkWithExistingCookie() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/admin/auth/logout").with(asAdmin()).cookie(new jakarta.servlet.http.Cookie("admin_session", "tok")))
+        .andExpect(status().isOk())
+        .andExpect(JsonEnvelopeMatchers.successTrue())
+        .andExpect(jsonPath("$.data.ok").value(true));
+  }
+
+  @Test
+  void carsListOkWithBrandFilter() throws Exception {
+    when(adminApiService.listCarsAdmin(false, "Toyota")).thenReturn(List.of(Map.of("id", "car_1")));
+    mockMvc
+        .perform(get("/api/v1/admin/cars").with(asAdmin()).param("brand", "Toyota"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].id").value("car_1"));
+  }
+
+  @Test
+  void getCarOk() throws Exception {
+    when(adminApiService.getCarAdmin("car_1")).thenReturn(Map.of("id", "car_1"));
+    mockMvc
+        .perform(get("/api/v1/admin/cars/car_1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("car_1"));
+  }
+
+  @Test
+  void createCarOk() throws Exception {
+    when(adminApiService.upsertCar(isNull(), any())).thenReturn(Map.of("id", "car_2"));
+    mockMvc
+        .perform(
+            post("/api/v1/admin/cars")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"brandName\":\"Toyota\",\"model\":\"Innova\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("car_2"));
+  }
+
+  @Test
+  void updateCarOk() throws Exception {
+    when(adminApiService.upsertCar(eq("car_1"), any())).thenReturn(Map.of("id", "car_1"));
+    mockMvc
+        .perform(
+            put("/api/v1/admin/cars/car_1")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"brandName\":\"Toyota\",\"model\":\"Fortuner\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("car_1"));
+  }
+
+  @Test
+  void deleteCarOk() throws Exception {
+    when(adminApiService.deleteCar("car_1")).thenReturn(Map.of("removed", "car_1"));
+    mockMvc
+        .perform(delete("/api/v1/admin/cars/car_1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.removed").value("car_1"));
+  }
+
+  @Test
+  void assignDeliveryOk() throws Exception {
+    when(adminApiService.assignDelivery("ord_1", "delivery@test.dev"))
+        .thenReturn(Map.of("assigned", true, "orderId", "ord_1"));
+    mockMvc
+        .perform(
+            patch("/api/v1/admin/orders/ord_1/assign-delivery")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"deliveryAdminEmail\":\"delivery@test.dev\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.assigned").value(true));
+  }
+
+  @Test
+  void deliveryOrdersOk() throws Exception {
+    when(adminApiService.listDeliveryOrdersForCurrent()).thenReturn(List.of(Map.of("id", "ord_1")));
+    mockMvc
+        .perform(get("/api/v1/admin/delivery/orders").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].id").value("ord_1"));
+  }
+
+  @Test
+  void employeesListOk() throws Exception {
+    when(adminApiService.listEmployees()).thenReturn(List.of(Map.of("phone", "+911234567890")));
+    mockMvc
+        .perform(get("/api/v1/admin/employees").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].phone").value("+911234567890"));
+  }
+
+  @Test
+  void createEmployeeOk() throws Exception {
+    when(adminApiService.createEmployee(any())).thenReturn(Map.of("id", "emp_1", "status", "pending"));
+    mockMvc
+        .perform(
+            post("/api/v1/admin/employees")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phone\":\"+911234567890\",\"role\":\"sales\",\"name\":\"A\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.status").value("pending"));
+  }
+
+  @Test
+  void setEmployeeAvailabilityOk() throws Exception {
+    when(adminApiService.setEmployeeAvailability("+911234567890", "free"))
+        .thenReturn(Map.of("id", "emp_1", "availability", "free"));
+    mockMvc
+        .perform(
+            patch("/api/v1/admin/employees/+911234567890/availability")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"availability\":\"free\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.availability").value("free"));
+  }
+
+  @Test
+  void productAuditOk() throws Exception {
+    when(adminApiService.productAuditHistory("p1"))
+        .thenReturn(List.of(Map.of("action", "updated", "actorName", "sales@test.dev")));
+    mockMvc
+        .perform(get("/api/v1/admin/products/p1/audit").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items[0].action").value("updated"));
+  }
+
+  @Test
+  void userOk() throws Exception {
+    when(adminApiService.getUserAdmin("u1")).thenReturn(Map.of("id", "u1"));
+    mockMvc
+        .perform(get("/api/v1/admin/users/u1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.id").value("u1"));
+  }
+}

@@ -1,0 +1,20 @@
+services:
+  api:
+    image: ${CARNALYSYS_API_IMAGE:-carnalysys-api:prod}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ${CARNALYSYS_SERVER_ROOT:-/opt/carnalysys/backend}/.env.prod
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/config/
+      LOGGING_FILE_NAME: /app/storage/logs/backend.log
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    restart: unless-stopped
+    volumes:
+      - ${CARNALYSYS_SERVER_ROOT:-/opt/carnalysys/backend}/config:/app/config
+      - ${CARNALYSYS_SERVER_ROOT:-/opt/carnalysys/backend}/uploads:/app/storage/uploads
+      - ${CARNALYSYS_SERVER_ROOT:-/opt/carnalysys/backend}/logs:/app/storage/logs
+

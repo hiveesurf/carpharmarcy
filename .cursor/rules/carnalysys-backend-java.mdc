@@ -1,0 +1,25 @@
+---
+description: Spring Boot backend conventions for com.carnalysys (JPA, services, REST, security)
+globs: backend/**/*.java
+alwaysApply: false
+---
+
+# Backend Java — CARNALYSYS
+
+## Conventions
+
+- **Package root:** `com.carnalysys`.
+- **Controllers:** `web.v1.*` — keep thin; validate input with Jakarta validation where DTOs exist; return consistent API envelopes.
+- **Services:** `service.*` — business rules, orchestration, `ApiException` for domain/API errors with appropriate HTTP mapping.
+- **Persistence:** `repo.*` extends `JpaRepository` / `JpaSpecificationExecutor` as needed; entities in `domain.*` with explicit column mappings where the project already uses them (e.g. JSONB, enums).
+- **Security:** Do not bypass auth checks for `/admin/**` or user-scoped data; follow existing `SecurityFilterChain` and session/JWT patterns.
+
+## Quality bar
+
+- After non-trivial changes, **`./mvnw -q compile`** (from `backend/`) should succeed.
+- Avoid N+1: for listing endpoints that touch lazy associations, use fetch joins, `@EntityGraph`, or DTO projection patterns consistent with nearby code.
+- Do not log secrets, tokens, or full PII; follow existing logging style if any.
+
+## Upstream Java rules
+
+When symlinks from the cursor-rules-java pack exist in `.cursor/rules/`, prefer aligning new REST code with `@302-frameworks-spring-boot-rest.mdc` and core structure with `@301-frameworks-spring-boot-core.mdc`, adapted for **Spring Boot 3.4** and **Java 17** (ignore Boot 4-only notes unless upgrading).

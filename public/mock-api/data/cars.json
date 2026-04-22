@@ -1,0 +1,97 @@
+[
+  {
+    "id": "veh-creta-23",
+    "title": "Hyundai Creta SX (Petrol)",
+    "year": 2023,
+    "price": 1425000,
+    "condition": "second-hand",
+    "km": 18500,
+    "fuel": "Petrol",
+    "transmission": "Automatic",
+    "location": "Bangalore",
+    "image": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1400&q=82&fm=jpg",
+    "imageAlt": "White SUV on coastal road",
+    "gallery": [
+      { "src": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1000&q=82&fm=jpg", "alt": "Exterior front three-quarter" },
+      { "src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1000&q=82&fm=jpg", "alt": "Sports car studio detail" }
+    ],
+    "description": "Single-owner city use, full agency service history."
+  },
+  {
+    "id": "veh-nexon-ev-24",
+    "title": "Tata Nexon EV Max",
+    "year": 2024,
+    "price": 1680000,
+    "condition": "first-hand",
+    "km": 4200,
+    "fuel": "Electric",
+    "transmission": "Automatic",
+    "location": "Mumbai",
+    "image": "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1400&q=82&fm=jpg",
+    "imageAlt": "Modern EV crossover exterior",
+    "gallery": [
+      { "src": "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=1000&q=82&fm=jpg", "alt": "EV exterior" }
+    ],
+    "description": "Demo drive mileage only; registered first owner."
+  },
+  {
+    "id": "veh-slavia-22",
+    "title": "Škoda Slavia Style TSI",
+    "year": 2022,
+    "price": 1189000,
+    "condition": "second-hand",
+    "km": 34200,
+    "fuel": "Petrol",
+    "transmission": "Manual",
+    "location": "Delhi NCR",
+    "image": "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=1400&q=82&fm=jpg",
+    "imageAlt": "Sedan with premium wheels",
+    "gallery": [],
+    "description": "Highway-mileage log; clutch and brakes inspected."
+  },
+  {
+    "id": "veh-city-21",
+    "title": "Honda City ZX CVT",
+    "year": 2021,
+    "price": 1295000,
+    "condition": "second-hand",
+    "km": 45800,
+    "fuel": "Petrol",
+    "transmission": "CVT",
+    "location": "Hyderabad",
+    "image": "https://images.unsplash.com/photo-1489824904134-9abaeb61134c?w=1400&q=82&fm=jpg",
+    "imageAlt": "Silver sedan in urban setting",
+    "gallery": [],
+    "description": "Corporate lease return with stamped service booklet."
+  },
+  {
+    "id": "veh-thar-24",
+    "title": "Mahindra Thar LX Diesel 4x4",
+    "year": 2024,
+    "price": 1520000,
+    "condition": "first-hand",
+    "km": 8900,
+    "fuel": "Diesel",
+    "transmission": "Manual",
+    "location": "Pune",
+    "image": "https://images.unsplash.com/photo-153347335933a-381c84afb79d?w=1400&q=82&fm=jpg",
+    "imageAlt": "4x4 SUV outdoor",
+    "gallery": [],
+    "description": "Accessory pack includes hard top and mats."
+  },
+  {
+    "id": "veh-virtus-23",
+    "title": "Volkswagen Virtus GT Plus",
+    "year": 2023,
+    "price": 1365000,
+    "condition": "second-hand",
+    "km": 22100,
+    "fuel": "Petrol",
+    "transmission": "DSG",
+    "location": "Chennai",
+    "image": "https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=1400&q=82&fm=jpg",
+    "imageAlt": "Contemporary sedan exterior",
+    "gallery": [],
+    "description": "DSG service done at authorised workshop."
+  }
+]
