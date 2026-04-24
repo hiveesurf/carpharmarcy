@@ -274,3 +274,14 @@ export async function listProductAudit(id) {
   const { data } = await adminApi.adminProductAudit(id)
   return data?.items ?? []
 }
+
+/**
+ * @param {File} file
+ * @param {{ category?: string, onUploadProgress?: (pct: number) => void }} [opts]
+ * @returns {Promise<import('../api/adminApi.js').ProductImportReport>}
+ */
+export async function bulkImportProducts(file, opts = {}) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminBulkImportProducts(file, opts)
+  return data ?? {}
+}

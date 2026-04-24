@@ -1,6 +1,6 @@
-# Production Deployment (Render + Vercel)
+# Production Deployment (Render backend + Vercel/Render frontend)
 
-This guide deploys backend and database on Render, then frontend on Vercel.
+This guide deploys backend and database on Render, then frontend on either Vercel or Render.
 
 ## 1) Prerequisites
 
@@ -26,7 +26,7 @@ This guide deploys backend and database on Render, then frontend on Vercel.
 
 Flyway migrations run automatically at backend startup using the managed Postgres connection.
 
-## 3) Deploy frontend on Vercel
+## 3A) Deploy frontend on Vercel
 
 From repository root:
 
@@ -34,13 +34,27 @@ From repository root:
 vercel login
 vercel link
 vercel env add VITE_BASE_PATH production
-vercel env add VITE_API_BASE production
 vercel deploy --prod --yes
 ```
 
 Recommended values:
 - `VITE_BASE_PATH` = `/`
-- `VITE_API_BASE` = `https://<render-backend-domain>`
+- `VITE_API_BASE` = `/api/v1`
+
+Vercel API routing is rewrite-based (canonical): `vercel.json` forwards `/api/*` to the backend.
+If backend domain changes, update the rewrite destination in `vercel.json` and redeploy.
+
+## 3B) Deploy frontend on Render (Docker)
+
+If you use a Render Blueprint from this repository root, `render.yaml` now provisions:
+- web service `car-rent-frontend` (Docker runtime from `Dockerfile.frontend`)
+
+After first deploy:
+1. Open frontend service env vars and set:
+   - `API_UPSTREAM=https://<render-backend-domain>`
+2. Redeploy frontend service.
+3. Set backend CORS:
+   - `APP_CORS_ALLOWED_ORIGINS=https://<render-frontend-domain>`
 
 ## 4) Smoke checks
 
@@ -49,7 +63,7 @@ Run:
 ```bash
 ./scripts/smoke-prod.sh \
   https://<render-backend-domain> \
-  https://<vercel-frontend-domain>
+  https://<frontend-domain>
 ```
 
 ## 5) Go-live checklist

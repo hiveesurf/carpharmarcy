@@ -6,12 +6,14 @@ Monorepo with:
 
 ## Deployment quick links
 
-- Best-production path (frontend Vercel + backend Render + managed Postgres):
-  - `docs/deploy-render-vercel.md`
-- UAT/prod runbook with rollback:
-  - `docs/deploy-uat-prod.md`
-- Environment setup:
-  - `docs/env-setup.md`
+- Local runbook:
+  - `docs/run-local.md`
+- API testing runbook:
+  - `docs/run-api-testing.md`
+- UAT/prod deployment runbook:
+  - `docs/run-deploy.md`
+- Config reference (local/UAT/prod):
+  - `docs/config-reference.md`
 
 ## Backend Server Docker Deployment
 
@@ -26,7 +28,7 @@ docker compose -f docker-compose.fullstack.yml up -d --build
 ```
 
 Endpoints:
-- Frontend: `http://127.0.0.1:5173`
+- Frontend: `http://127.0.0.1:5199`
 - Backend API: `http://127.0.0.1:8080/api/v1/health`
 
 ### Server folder layout

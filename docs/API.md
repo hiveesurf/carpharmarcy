@@ -1,12 +1,17 @@
 # CARNALYSYS API
 
+Primary run/testing guides:
+- `docs/run-local.md`
+- `docs/run-api-testing.md`
+- `docs/config-reference.md`
+
 ## Run (Spring Boot)
 
 1. PostgreSQL on `localhost:5432`, database `carnalysys` (see repo `docker-compose` / Flyway migrations in `backend/`).
 2. From **`backend/`**: `./mvnw spring-boot:run` → **http://localhost:8080**. **spring-boot-devtools** is enabled: after you save Java or resource files, the app restarts automatically once they are compiled (use Cursor/VS Code with the Java extension and **autobuild** on, or IntelliJ **Build project automatically** + allow auto-make while running).
 3. From repo root: **`npm run dev`** (Vite port **5199**). The dev server proxies **`/api` → http://127.0.0.1:8080**, so the UI uses **`/api/v1/...`** with no CORS issues.
 
-Optional: set **`VITE_API_BASE=http://localhost:8080`** (or full URL ending in `/api/v1`) for static builds; CORS must allow your origin (Spring config includes common dev origins).
+Optional: set **`VITE_API_BASE=http://localhost:8080/api/v1`** for static builds; CORS must allow your origin (Spring config includes common dev origins).
 
 **Demo:** OTP from backend config (e.g. `123456` when enabled) · Admin `admin@carnalysys.com` / `admin123` (seed).
 

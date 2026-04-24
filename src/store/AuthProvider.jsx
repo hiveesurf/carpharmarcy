@@ -159,6 +159,16 @@ export function AuthProvider({ children }) {
       await authService.sendOtp(phone)
       return { ok: true }
     } catch (e) {
+      if (e?.status === 403) {
+        return {
+          ok: false,
+          message:
+            e?.message ||
+            (import.meta.env.PROD
+              ? 'OTP request was blocked. Verify backend APP_CORS_ALLOWED_ORIGINS includes this frontend domain.'
+              : 'You do not have access to this.'),
+        }
+      }
       return { ok: false, message: e?.message || 'Could not send OTP' }
     }
   }, [])

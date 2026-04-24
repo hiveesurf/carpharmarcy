@@ -10,7 +10,7 @@ services:
       api:
         condition: service_started
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - "5199:80"
     restart: unless-stopped
 
   api:
@@ -18,17 +18,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - path: ./backend/.env.local
-        required: false
     environment:
       SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/carnalysys}
-      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-carnalysys}
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-carnalysys_dev}
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - "${SERVER_PORT:-8080}:8080"
     restart: unless-stopped
@@ -44,7 +35,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - carnalysys_fullstack_pgdata:/var/lib/postgresql/data
+      - carnalysys_pgdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U carnalysys -d carnalysys"]
@@ -54,4 +45,4 @@ services:
       start_period: 10s
 
 volumes:
-  carnalysys_fullstack_pgdata:
+  carnalysys_pgdata:

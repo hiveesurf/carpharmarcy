@@ -6,10 +6,12 @@ import com.carnalysys.security.AdminSessionService;
 import com.carnalysys.service.AdminApiService;
 import com.carnalysys.service.NotificationService;
 import com.carnalysys.web.dto.AdminLoginRequest;
+import com.carnalysys.web.dto.ProductImportReport;
 import com.carnalysys.web.support.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
@@ -24,7 +26,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.WebUtils;
 
 @RestController
@@ -249,6 +253,14 @@ public class AdminV1Controller {
       HttpServletRequest req, @PathVariable String phone, @RequestBody Map<String, Object> body) {
     String value = body == null ? "" : String.valueOf(body.getOrDefault("availability", ""));
     return ApiResponses.ok(req, adminApiService.setEmployeeAvailability(phone, value));
+  }
+
+  @PostMapping(value = "/products/import-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ApiEnvelope<ProductImportReport> importExcel(
+      HttpServletRequest req,
+      @RequestPart("file") MultipartFile file,
+      @RequestParam(name = "category", required = false) String category) {
+    return ApiResponses.ok(req, adminApiService.bulkImportProducts(file, category));
   }
 
   @GetMapping("/products/{id}/audit")

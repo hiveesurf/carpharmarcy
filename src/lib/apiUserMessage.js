@@ -56,8 +56,13 @@ export function toUserFacingApiError(payload, httpStatus) {
   }
 
   if (code === 'FORBIDDEN' || httpStatus === 403) {
+    // Spring CORS/security rejections can surface as bare 403s in production setups.
+    const fallback403 =
+      !code && !message && import.meta.env.PROD
+        ? 'Request was blocked by server policy. For login/OTP, verify backend APP_CORS_ALLOWED_ORIGINS includes this frontend domain.'
+        : 'You do not have access to this.'
     return {
-      message: message && !looksLikeStackTrace(message) ? message : 'You do not have access to this.',
+      message: message && !looksLikeStackTrace(message) ? message : fallback403,
       code,
       requestId: meta.requestId ?? null,
     }

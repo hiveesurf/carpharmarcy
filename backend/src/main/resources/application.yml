@@ -5,8 +5,8 @@ spring:
     default: local
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 2MB
+      max-file-size: 10MB
+      max-request-size: 10MB
   # spring-boot-devtools (on classpath for mvn spring-boot:run / IDE): restarts when target/classes changes.
   # In Cursor/VS Code or IntelliJ, turn on automatic Java build on save so .class files update without manual mvn compile.
   devtools:

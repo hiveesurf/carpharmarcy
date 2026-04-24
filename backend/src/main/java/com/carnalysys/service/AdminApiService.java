@@ -14,6 +14,8 @@ import com.carnalysys.domain.ProductType;
 import com.carnalysys.domain.ProductVehicleSpec;
 import com.carnalysys.domain.UserEntity;
 import com.carnalysys.domain.UserRole;
+import com.carnalysys.web.dto.ProductImportReport;
+import com.carnalysys.web.dto.ProductImportRowResult;
 import com.carnalysys.repo.CategoryRepository;
 import com.carnalysys.repo.CarModelRepository;
 import com.carnalysys.repo.OrderRepository;
@@ -42,8 +44,10 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -80,6 +84,7 @@ public class AdminApiService {
   private final UploadStorageService uploadStorageService;
   private final UserAvatarService userAvatarService;
   private final NotificationService notificationService;
+  private final ProductExcelParser productExcelParser;
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
@@ -103,7 +108,8 @@ public class AdminApiService {
       ProductPresenter productPresenter,
       UploadStorageService uploadStorageService,
       UserAvatarService userAvatarService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      ProductExcelParser productExcelParser) {
     this.adminUserRepository = adminUserRepository;
     this.passwordEncoder = passwordEncoder;
     this.adminSessionService = adminSessionService;
@@ -126,6 +132,7 @@ public class AdminApiService {
     this.uploadStorageService = uploadStorageService;
     this.userAvatarService = userAvatarService;
     this.notificationService = notificationService;
+    this.productExcelParser = productExcelParser;
   }
 
   @Transactional
@@ -489,17 +496,35 @@ public class AdminApiService {
     Product savedProduct = productRepository.save(p);
     p = savedProduct;
     if (p.getType() == ProductType.part) {
-      if (body.containsKey("compatibleCars")) {
+      if (body.containsKey("compatibleCars") || body.containsKey("fitmentLabels")) {
         fitmentLabelRepository.deleteByProductId(p.getId());
-        @SuppressWarnings("unchecked")
-        List<String> cars = (List<String>) body.get("compatibleCars");
-        if (cars != null) {
-          for (String label : cars) {
-            if (label == null || label.isBlank()) continue;
-            ProductFitmentLabel f = new ProductFitmentLabel();
-            f.setProductId(p.getId());
-            f.setLabel(label.trim());
-            fitmentLabelRepository.save(f);
+        // Legacy free-text list
+        if (body.containsKey("compatibleCars")) {
+          @SuppressWarnings("unchecked")
+          List<String> cars = (List<String>) body.get("compatibleCars");
+          if (cars != null) {
+            for (String label : cars) {
+              if (label == null || label.isBlank()) continue;
+              ProductFitmentLabel f = new ProductFitmentLabel();
+              f.setProductId(p.getId());
+              f.setLabel(label.trim());
+              fitmentLabelRepository.save(f);
+            }
+          }
+        }
+        // Structured fitment labels from single-add form (Excel-style)
+        if (body.containsKey("fitmentLabels")) {
+          @SuppressWarnings("unchecked")
+          List<Map<String, String>> fitmentLabels = (List<Map<String, String>>) body.get("fitmentLabels");
+          if (fitmentLabels != null) {
+            for (Map<String, String> entry : fitmentLabels) {
+              String lv = entry == null ? null : entry.get("labelValue");
+              if (lv == null || lv.isBlank()) continue;
+              ProductFitmentLabel f = new ProductFitmentLabel();
+              f.setProductId(p.getId());
+              f.setLabel(lv.trim());
+              fitmentLabelRepository.save(f);
+            }
           }
         }
       }
@@ -571,7 +596,7 @@ public class AdminApiService {
     return Map.of("product", productPresenter.toAdminMap(saved, fits, fitCarIds, carsById, spec));
   }
 
-  /** Preserves existing JSON; stores optional primary image URL + gallery for catalog parts. */
+  /** Preserves existing JSON; stores optional primary image URL + gallery for catalog parts. Also merges part detail fields. */
   private ObjectNode mergePartImageMetadata(JsonNode existing, Map<String, Object> body) {
     ObjectNode meta =
         existing != null && existing.isObject()
@@ -597,6 +622,14 @@ public class AdminApiService {
                   "parts", galleryRaw.stream().map(x -> (Object) x).toList())
               : List.of();
       meta.set("galleryExtras", objectMapper.valueToTree(persistedGallery));
+    }
+    // Extra part detail fields from single-add / Excel format
+    for (String key : List.of("partNumber", "brand", "unitVolume", "supplierName")) {
+      if (body.containsKey(key)) {
+        String v = strOrNull(body.get(key));
+        if (v != null && !v.isBlank()) meta.put(key, v);
+        else meta.remove(key);
+      }
     }
     return meta;
   }
@@ -653,6 +686,87 @@ public class AdminApiService {
         categoryRepository.findAll().stream().mapToInt(Category::getDisplayOrder).max().orElse(0);
     c.setDisplayOrder(maxOrder + 1);
     return categoryRepository.save(c);
+  }
+
+  @Transactional(rollbackFor = Exception.class)
+  public ProductImportReport bulkImportProducts(MultipartFile file, String categoryName) {
+    // Step 1: parse Excel
+    List<ProductExcelParser.ParsedRow> parsed = productExcelParser.parse(file);
+
+    if (parsed.isEmpty()) {
+      return new ProductImportReport(0, 0, 0, List.of(), List.of("No importable rows found in file"));
+    }
+
+    // Step 2: collect all final SKUs and pre-check against active DB products
+    List<String> allSkus = parsed.stream().map(ProductExcelParser.ParsedRow::sku).toList();
+    List<String> conflicts = productRepository.findBySkuInAndDeletedAtIsNull(allSkus)
+        .stream().map(Product::getSku).toList();
+    if (!conflicts.isEmpty()) {
+      throw new ApiException(HttpStatus.CONFLICT, "SKU_CONFLICT",
+          "SKUs already exist: " + String.join(", ", conflicts));
+    }
+
+    // Step 3: resolve/create category
+    String catName = (categoryName != null && !categoryName.isBlank()) ? categoryName : "Service Parts";
+    Category category = resolveOrCreateCategoryForProduct(catName);
+
+    // Step 4: save products and fitment labels
+    List<ProductImportRowResult> rowResults = new ArrayList<>();
+    int created = 0;
+
+    for (ProductExcelParser.ParsedRow row : parsed) {
+      String productId = "prd_" + UUID.randomUUID();
+      Product p = new Product();
+      p.setId(productId);
+      p.setCategory(category);
+      p.setType(ProductType.part);
+      p.setSku(row.sku());
+      p.setName(row.partName());
+      p.setPriceInr(row.sellingPrice().compareTo(BigDecimal.ZERO) > 0
+          ? row.sellingPrice() : BigDecimal.ZERO);
+      p.setPurchasePriceInr(row.purchasePrice().compareTo(BigDecimal.ZERO) > 0
+          ? row.purchasePrice() : BigDecimal.ZERO);
+      p.setStockQuantity(row.currentStock());
+      p.setPublished(!row.partName().isBlank() && row.currentStock() > 0);
+      p.setImageKey("brakes");
+
+      ObjectNode meta = objectMapper.createObjectNode();
+      if (!row.partNumber().isBlank()) meta.put("partNumber", row.partNumber());
+      if (!row.brand().isBlank()) meta.put("brand", row.brand());
+      if (!row.unitVolume().isBlank()) meta.put("unitVolume", row.unitVolume());
+      if (!row.supplierName().isBlank()) meta.put("supplierName", row.supplierName());
+      meta.put("openingStock", row.openingStock());
+      meta.put("stockIn", row.stockIn());
+      meta.put("stockOut", row.stockOut());
+      ObjectNode importedFrom = objectMapper.createObjectNode();
+      importedFrom.put("rowNumber", row.rowNumber());
+      importedFrom.put("file", file.getOriginalFilename());
+      meta.set("importedFrom", importedFrom);
+      p.setMetadata(meta);
+
+      productRepository.save(p);
+
+      // Fitment labels
+      for (Map.Entry<String, String> fitment : Map.of(
+          "vehicle_model", row.vehicleModel(),
+          "year", row.year(),
+          "vehicle_make", row.vehicleMake(),
+          "vehicle_variant", row.vehicleVariant(),
+          "vehicle_fuel", row.vehicleFuel()
+      ).entrySet()) {
+        String val = fitment.getValue();
+        if (val == null || val.isBlank()) continue;
+        ProductFitmentLabel lbl = new ProductFitmentLabel();
+        lbl.setProductId(productId);
+        lbl.setLabel(val);
+        fitmentLabelRepository.save(lbl);
+      }
+
+      rowResults.add(new ProductImportRowResult(row.rowNumber(), row.sku(), row.partName(), "CREATED", null));
+      created++;
+    }
+
+    return new ProductImportReport(parsed.size(), created, 0, rowResults, List.of());
   }
 
   @Transactional(rollbackFor = Exception.class)

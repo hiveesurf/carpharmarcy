@@ -2,6 +2,7 @@ package com.carnalysys.repo;
 
 import com.carnalysys.domain.Product;
 import com.carnalysys.domain.ProductType;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -26,4 +27,6 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select p from Product p where p.id in :ids")
   List<Product> findAllByIdInForUpdate(List<String> ids);
+
+  List<Product> findBySkuInAndDeletedAtIsNull(Collection<String> skus);
 }

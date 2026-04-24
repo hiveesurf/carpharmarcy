@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:local": "vite",
+    "dev": "vite --mode local",
+    "dev:local": "vite --mode local",
     "build": "vite build",
-    "build:local": "vite build --mode development",
+    "build:local": "vite build --mode local",
     "build:uat": "vite build --mode uat",
     "build:prod": "vite build --mode production",
     "lint": "eslint .",

@@ -141,3 +141,19 @@ export function adminListDeliveryOrders() {
 export function adminProductAudit(id) {
   return apiGet(`/admin/products/${encodeURIComponent(id)}/audit`)
 }
+
+/**
+ * Bulk-import products from an .xlsx file.
+ * Uses XHR for upload-progress support.
+ * @param {File} file
+ * @param {{ category?: string, onUploadProgress?: (pct: number) => void }} [opts]
+ */
+export async function adminBulkImportProducts(file, { category, onUploadProgress } = {}) {
+  const { uploadWithProgress } = await import('./uploadWithProgress.js')
+  const fd = new FormData()
+  fd.append('file', file)
+  const path = category
+    ? `/admin/products/import-excel?category=${encodeURIComponent(category)}`
+    : '/admin/products/import-excel'
+  return uploadWithProgress(path, fd, { onUploadProgress })
+}

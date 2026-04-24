@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Eye, EyeOff, LayoutGrid, LayoutList, Pencil, Trash2 } from 'lucide-react'
 import { AddProductPanel } from '../components/AddProductPanel.jsx'
+import { BulkImportProductsPanel } from '../components/BulkImportProductsPanel.jsx'
 import { ProductEditDrawer } from '../components/ProductEditDrawer.jsx'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
@@ -212,6 +213,8 @@ export function AdminProductsPage() {
       </div>
 
       <AddProductPanel onCreated={onProductCreated} />
+
+      <BulkImportProductsPanel onCompleted={bumpList} />
 
       {error && (
         <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog">

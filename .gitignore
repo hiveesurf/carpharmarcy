@@ -15,7 +15,6 @@ dist-ssr
 !.env.local
 !.env.uat
 !.env.production
-!.env.development
 backend/.env.local
 backend/.env.uat
 backend/.env.prod

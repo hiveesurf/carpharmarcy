@@ -1,5 +1,17 @@
 services:
   - type: web
+    name: car-rent-frontend
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.frontend
+    plan: starter
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: API_UPSTREAM
+        sync: false
+
+  - type: web
     name: car-rent-backend
     runtime: docker
     dockerContext: ./backend

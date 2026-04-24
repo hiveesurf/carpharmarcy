@@ -1,5 +1,12 @@
 # Environment Setup and Deployment
 
+This document is a compatibility index. Canonical runbooks are:
+
+- `docs/run-local.md`
+- `docs/run-api-testing.md`
+- `docs/run-deploy.md`
+- `docs/config-reference.md`
+
 ## Profiles
 
 - `local`: developer machine defaults, local DB/proxy convenience values.
@@ -36,6 +43,14 @@ SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 
 ```bash
 npm run dev:local
+```
+
+Local auth/OTP note:
+- Backend `local` profile allows common local frontend origins by default (`localhost`/`127.0.0.1` on `5173` and `5199`).
+- If you use a different frontend origin/port, set:
+
+```bash
+APP_CORS_ALLOWED_ORIGINS=http://localhost:YOUR_PORT,http://127.0.0.1:YOUR_PORT
 ```
 
 ## Frontend Builds
