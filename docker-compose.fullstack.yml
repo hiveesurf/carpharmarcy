@@ -44,5 +44,29 @@ services:
       retries: 5
       start_period: 10s
 
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: carnalysys
+      POSTGRES_PASSWORD: carnalysys_dev
+      POSTGRES_DB: carnalysys
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@carnalysys.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+    ports:
+      - "5050:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./db/pgadmin/bootstrap.sh:/bootstrap.sh:ro
+      - ./db/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    entrypoint: ["/bin/bash", "/bootstrap.sh"]
+
 volumes:
   carnalysys_pgdata:
