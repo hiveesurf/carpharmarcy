@@ -61,6 +61,10 @@ export function AdminProductsPage() {
 
   function mergeSavedProduct(updated) {
     if (!updated?.id) return
+    if (updated.deleted || updated.deletedAt) {
+      setItems((prev) => prev.filter((x) => x.id !== updated.id))
+      return
+    }
     setItems((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
   }
 
@@ -73,10 +77,11 @@ export function AdminProductsPage() {
         pageSize: PAGE_SIZE,
         sort,
       })
+      const activeItems = (result.items || []).filter((x) => !x?.deleted && !x?.deletedAt)
       if (reset) {
-        setItems(result.items)
+        setItems(activeItems)
       } else {
-        setItems((prev) => [...prev, ...result.items])
+        setItems((prev) => [...prev, ...activeItems])
       }
       setHasMore(Boolean(result.hasMore))
       setNextPage(result.nextPage)
@@ -212,7 +217,7 @@ export function AdminProductsPage() {
         </div>
       </div>
 
-      <AddProductPanel onCreated={onProductCreated} />
+      <AddProductPanel onCreated={onProductCreated} /> 
 
       <BulkImportProductsPanel onCompleted={bumpList} />
 
@@ -245,7 +250,6 @@ export function AdminProductsPage() {
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Category</th>
                     <th className="px-4 py-3 font-medium text-right">Actual</th>
-                    <th className="px-4 py-3 font-medium text-right">Discounted</th>
                     <th className="hidden px-4 py-3 text-right font-medium xl:table-cell">Purchase</th>
                     <th className="hidden px-4 py-3 text-right font-medium xl:table-cell">Sold</th>
                     <th className="hidden px-4 py-3 text-right font-medium xl:table-cell">Profit/Loss</th>
@@ -258,7 +262,7 @@ export function AdminProductsPage() {
                 <tbody className="divide-y divide-steel/40">
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={13} className="px-4 py-10 text-center text-mist">
+                      <td colSpan={12} className="px-4 py-10 text-center text-mist">
                         No products on this page — add one above or go to another page.
                       </td>
                     </tr>
@@ -289,7 +293,6 @@ export function AdminProductsPage() {
                       <td className="px-4 py-3 capitalize text-mist">{p.type}</td>
                       <td className="px-4 py-3 text-mist">{p.category}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-fog">{formatInr(p.actualPrice ?? p.price)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-fog">{p.discountedPrice == null ? '—' : formatInr(p.discountedPrice)}</td>
                       <td className="hidden px-4 py-3 text-right tabular-nums text-mist xl:table-cell">{formatInr(p.purchasePrice)}</td>
                       <td className="hidden px-4 py-3 text-right tabular-nums text-mist xl:table-cell">{p.soldCount ?? 0}</td>
                       <td className={`hidden px-4 py-3 text-right tabular-nums xl:table-cell ${(p.profitValue ?? 0) >= 0 ? 'text-accent' : 'text-flare'}`}>
@@ -438,11 +441,6 @@ export function AdminProductsPage() {
                         <span className="font-display text-lg font-bold tabular-nums text-accent">
                           {formatInr(p.actualPrice ?? p.price)}
                         </span>
-                        {p.discountedPrice != null ? (
-                          <span className="font-mono text-[11px] tabular-nums text-hud">
-                            Discounted {formatInr(p.discountedPrice)}
-                          </span>
-                        ) : null}
                       </div>
                       <span className="font-mono text-xs text-mist">Sold {p.soldCount ?? 0}</span>
                     </div>

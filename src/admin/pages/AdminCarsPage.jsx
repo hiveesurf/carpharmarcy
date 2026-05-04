@@ -185,11 +185,20 @@ export function AdminCarsPage() {
       }
       if (createPhoto) body.image = createPhoto
       if (createBrandLogo) body.brandLogo = createBrandLogo
-      await adminService.createCar(body)
+      const createdCar = await adminService.createCar(body)
       setForm(emptyForm())
       setCreatePhoto('')
       setCreateBrandLogo('')
       await Promise.all([loadCars(true), refreshBrands()])
+      if (createdCar?.id) {
+        const matchesActiveBrand = !brand || String(createdCar.make ?? '').toLowerCase() === brand.toLowerCase()
+        if (matchesActiveBrand) {
+          setItems((prev) => {
+            const next = [createdCar, ...prev.filter((x) => x.id !== createdCar.id)]
+            return next.slice(0, PAGE_SIZE)
+          })
+        }
+      }
     } catch (e) {
       setError(getFetchErrorMessage(e))
     } finally {

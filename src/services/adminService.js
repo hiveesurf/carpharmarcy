@@ -1,6 +1,35 @@
 import * as adminApi from '../api/adminApi.js'
 import { apiV1Base } from '../api/client.js'
 
+const clientCarCreatedAt = new Map()
+
+function parseCarTimestamp(car) {
+  const candidates = [
+    car?.createdAt,
+    car?.updatedAt,
+    car?.created_at,
+    car?.updated_at,
+  ]
+  for (const raw of candidates) {
+    const ts = Date.parse(raw ?? '')
+    if (Number.isFinite(ts)) return ts
+  }
+  if (car?.id && clientCarCreatedAt.has(car.id)) {
+    return clientCarCreatedAt.get(car.id)
+  }
+  return Number.NEGATIVE_INFINITY
+}
+
+function sortCarsByNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const aTs = parseCarTimestamp(a)
+    const bTs = parseCarTimestamp(b)
+    if (aTs !== bTs) return bTs - aTs
+    if (a?.id && b?.id) return String(b.id).localeCompare(String(a.id))
+    return 0
+  })
+}
+
 export async function loginAdmin(email, password) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   return adminApi.adminLogin({ email, password })
@@ -142,7 +171,7 @@ export async function listCars(params = {}) {
     hasMore = Boolean(d.hasMore)
     page = typeof d.nextPage === 'number' ? d.nextPage : page + 1
   }
-  return merged
+  return sortCarsByNewestFirst(merged)
 }
 
 export async function listCarsPage(params = {}) {
@@ -150,7 +179,7 @@ export async function listCarsPage(params = {}) {
   const { data } = await adminApi.adminListCars(params)
   const d = data && typeof data === 'object' ? data : {}
   return {
-    items: Array.isArray(d.items) ? d.items : [],
+    items: sortCarsByNewestFirst(Array.isArray(d.items) ? d.items : []),
     page: typeof d.page === 'number' ? d.page : params.page ?? 0,
     size: typeof d.size === 'number' ? d.size : params.size ?? 5,
     hasMore: Boolean(d.hasMore),
@@ -167,7 +196,11 @@ export async function getCar(id) {
 export async function createCar(body) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminCreateCar(body)
-  return data?.car ?? null
+  const created = data?.car ?? null
+  if (created?.id) {
+    clientCarCreatedAt.set(created.id, Date.now())
+  }
+  return created
 }
 
 export async function updateCar(id, body) {

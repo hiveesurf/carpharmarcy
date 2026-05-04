@@ -171,6 +171,40 @@ public class ProductPresenter {
     if (p.getUpdatedAt() != null) {
       m.put("updatedAt", p.getUpdatedAt().toString());
     }
+    if (p.getType() == ProductType.part && p.getMetadata() != null) {
+      JsonNode md = p.getMetadata();
+      m.put("metadata", jsonToValue(md));
+      if (md.isObject()) {
+        putMetadataConvenienceField(m, md, "brand");
+        putMetadataConvenienceField(m, md, "partNumber");
+        putMetadataConvenienceField(m, md, "unitVolume");
+        putMetadataConvenienceField(m, md, "supplierName");
+      }
+    }
     return m;
+  }
+
+  /**
+   * Exposes selected metadata string fields at the top level for admin clients (e.g. edit form). Only
+   * sets the key when the value is present and non-blank.
+   */
+  private static void putMetadataConvenienceField(Map<String, Object> m, JsonNode md, String key) {
+    if (!md.has(key)) {
+      return;
+    }
+    JsonNode v = md.get(key);
+    if (v == null || v.isNull()) {
+      return;
+    }
+    if (v.isTextual()) {
+      String s = v.asText().trim();
+      if (!s.isEmpty()) {
+        m.put(key, s);
+      }
+      return;
+    }
+    if (v.isNumber() || v.isBoolean()) {
+      m.put(key, v.asText());
+    }
   }
 }

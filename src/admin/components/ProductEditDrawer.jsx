@@ -9,6 +9,24 @@ import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 
 const MAX_RAW = 12 * 1024 * 1024
 
+/** Normalizes `product.metadata` to a plain object (API may send object or JSON string). */
+function metadataFromProduct(product) {
+  if (!product || typeof product !== 'object') return {}
+  const raw = product.metadata
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return { ...raw }
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
 function galleryFromProduct(p) {
   const g = p?.gallery
   if (!Array.isArray(g)) return []
@@ -34,19 +52,23 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
   const [sku, setSku] = useState('')
   const [actualPrice, setActualPrice] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
-  const [discountedPrice, setDiscountedPrice] = useState('')
   const [stock, setStock] = useState('')
   const [categoryName, setCategoryName] = useState('')
   const [imageKey, setImageKey] = useState('brakes')
   const [description, setDescription] = useState('')
   const [published, setPublished] = useState(true)
   const [primaryUpload, setPrimaryUpload] = useState('')
+  const [removePrimaryImage, setRemovePrimaryImage] = useState(false)
   const [primaryBusy, setPrimaryBusy] = useState(false)
   const [galleryItems, setGalleryItems] = useState([])
   const [extrasBusy, setExtrasBusy] = useState(false)
   const [cars, setCars] = useState([])
   const [selectedCarIds, setSelectedCarIds] = useState([])
   const [auditRows, setAuditRows] = useState([])
+  const [brand, setBrand] = useState('')
+  const [partNumber, setPartNumber] = useState('')
+  const [unitVolume, setUnitVolume] = useState('')
+  const [supplierName, setSupplierName] = useState('')
 
   const load = useCallback(async () => {
     if (!productId) return
@@ -85,11 +107,11 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
 
   useEffect(() => {
     if (!p) return
+    const md = metadataFromProduct(p)
     setName(p.name ?? '')
     setSku(p.sku ?? '')
     setActualPrice(String(p.actualPrice ?? p.price ?? ''))
     setPurchasePrice(String(p.purchasePrice ?? '0'))
-    setDiscountedPrice(p.discountedPrice == null ? '' : String(p.discountedPrice))
     setStock(String(p.totalStock ?? '0'))
     setCategoryName(p.category ?? '')
     setImageKey(p.imageKey && PART_IMAGE_KEYS.includes(p.imageKey) ? p.imageKey : 'brakes')
@@ -97,7 +119,12 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     setSelectedCarIds(Array.isArray(p.compatibleCarIds) ? p.compatibleCarIds : [])
     setPublished(!!p.published)
     setPrimaryUpload('')
+    setRemovePrimaryImage(false)
     setGalleryItems(galleryFromProduct(p))
+    setBrand(String(p.brand ?? md.brand ?? ''))
+    setPartNumber(String(p.partNumber ?? md.partNumber ?? ''))
+    setUnitVolume(String(p.unitVolume ?? md.unitVolume ?? ''))
+    setSupplierName(String(p.supplierName ?? md.supplierName ?? ''))
   }, [p])
 
   async function onPrimaryFile(ev) {
@@ -107,6 +134,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     setPrimaryBusy(true)
     try {
       setPrimaryUpload(await imageFileToCompressedDataUrl(f))
+      setRemovePrimaryImage(false)
     } finally {
       setPrimaryBusy(false)
     }
@@ -132,6 +160,11 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
 
   function removeGalleryItem(id) {
     setGalleryItems((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  function removeCurrentPrimaryImage() {
+    setPrimaryUpload('')
+    setRemovePrimaryImage(true)
   }
 
   async function togglePublishQuick() {
@@ -178,17 +211,20 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
       imageKey: imageKey || 'brakes',
       compatibleCarIds: selectedCarIds,
       galleryExtras,
-    }
-    if (discountedPrice.trim()) {
-      body.discountedPrice = Number(discountedPrice) || 0
-    } else {
-      body.discountedPrice = null
+      brand: brand.trim(),
+      partNumber: partNumber.trim(),
+      unitVolume: unitVolume.trim(),
+      supplierName: supplierName.trim(),
     }
     if (primary) body.primaryImageUrl = primary
+    else if (removePrimaryImage) body.primaryImageUrl = ''
     if (description.trim()) body.description = description.trim()
 
+    const payload = body
+    console.log("Edit Product update payload:", payload)
+
     try {
-      const updated = await adminService.updateProduct(p.id, body)
+      const updated = await adminService.updateProduct(p.id, payload)
       if (updated) {
         onSaved?.(updated)
         setP(updated)
@@ -273,16 +309,30 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Actual price (INR)</label>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Brand</label>
+                  <input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Part Number</label>
+                  <input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Unit / Volume</label>
+                  <input value={unitVolume} onChange={(e) => setUnitVolume(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Supplier Name</label>
+                  <input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Selling Price (INR)</label>
                   <input required type="number" min={0} value={actualPrice} onChange={(e) => setActualPrice(e.target.value)} className={inputClass} />
                 </div>
                 <div>
                   <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Purchase price (INR)</label>
                   <input required type="number" min={0} value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Discounted price (INR)</label>
-                  <input type="number" min={0} value={discountedPrice} onChange={(e) => setDiscountedPrice(e.target.value)} className={inputClass} />
                 </div>
                 <div>
                   <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Stock</label>
@@ -336,14 +386,27 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
                   </div>
                 )}
                 {!primaryUpload && p.image ? (
-                  <div className="mt-2 flex items-center gap-2">
-                    <img
-                      src={resolveApiAssetUrl(p.image) ?? p.image}
-                      alt=""
-                      className="h-16 w-16 rounded-lg object-cover"
-                    />
-                    <span className="font-mono text-[10px] text-mist">Current image</span>
+                  <div className="mt-2">
+                    <div className="relative inline-block">
+                      <img
+                        src={resolveApiAssetUrl(p.image) ?? p.image}
+                        alt=""
+                        className="h-16 w-16 rounded-lg border border-steel/50 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeCurrentPrimaryImage}
+                        className="absolute -right-1 -top-1 rounded-full bg-ink p-0.5 text-flare"
+                        aria-label="Remove primary image"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <span className="mt-1 block font-mono text-[10px] text-mist">Current image</span>
                   </div>
+                ) : null}
+                {removePrimaryImage ? (
+                  <p className="mt-2 text-xs text-flare">Primary image will be removed on save.</p>
                 ) : null}
               </div>
 
