@@ -7,6 +7,13 @@ const availabilityOptions = ['free', 'busy', 'offline']
 const MAX_RAW_FILE = 12 * 1024 * 1024
 const PAGE_SIZE = 5
 
+function normalizePhoneInput(value) {
+  const digits = String(value ?? '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.length <= 10) return digits
+  return digits.slice(-10)
+}
+
 export function AdminEmployeesPage() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -61,7 +68,7 @@ export function AdminEmployeesPage() {
     setSaving(true)
     setError(null)
     try {
-      const body = { ...form }
+      const body = { ...form, phone: normalizePhoneInput(form.phone) }
       if (photoDataUrl) body.photo = photoDataUrl
       await adminService.createEmployee(body)
       setForm({ phone: '', role: 'sales', name: '' })
@@ -109,7 +116,7 @@ export function AdminEmployeesPage() {
       <section className="admin-card p-4">
         <h2 className="mb-3 font-mono text-xs uppercase tracking-wider text-hud">Create employee</h2>
         <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
-          <input required value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Phone number" className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 text-sm text-fog" />
+          <input required value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: normalizePhoneInput(e.target.value) }))} maxLength={10} placeholder="Phone number" className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 text-sm text-fog" />
           <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 text-sm text-fog" />
           <div className="md:col-span-2 rounded-xl border border-steel/50 bg-ink/20 p-3">
             <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">Photo (optional)</p>

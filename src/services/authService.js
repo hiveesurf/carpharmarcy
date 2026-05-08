@@ -3,6 +3,13 @@ import { refreshSessionWithCookie, apiV1Base } from '../api/client.js'
 import { clearApiSessionId } from '../api/session.js'
 import { clearAccessToken, setAccessToken } from '../lib/authTokens.js'
 
+function normalizeOtpPhone(phone) {
+  const digits = String(phone ?? '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.length <= 10) return digits
+  return digits.slice(-10)
+}
+
 /** Profile from DB; null if unauthenticated or error. */
 export async function fetchSessionUser() {
   if (!apiV1Base()) return null
@@ -20,7 +27,7 @@ export async function sendOtp(phone) {
       'API not configured. Use Vite dev (proxies to Spring :8080) or set VITE_API_BASE to your /api/v1 URL.',
     )
   }
-  return authApi.sendOtp(String(phone).replace(/\D/g, ''))
+  return authApi.sendOtp(normalizeOtpPhone(phone))
 }
 
 export async function verifyOtp(phone, otp) {
@@ -29,7 +36,7 @@ export async function verifyOtp(phone, otp) {
       'API not configured. Use Vite dev (proxies to Spring :8080) or set VITE_API_BASE to your /api/v1 URL.',
     )
   }
-  const digits = String(phone).replace(/\D/g, '')
+  const digits = normalizeOtpPhone(phone)
   const code = String(otp)
   const res = await authApi.verifyOtp(digits, code)
   setAccessToken(res.data.accessToken)

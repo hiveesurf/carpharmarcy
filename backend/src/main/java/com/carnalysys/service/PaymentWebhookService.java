@@ -155,6 +155,7 @@ public class PaymentWebhookService {
         eventId,
         Map.of("orderId", order.getId(), "paymentStatus", incoming.name(), "orderStatus", order.getStatus().name()));
 
+    orderService.notifyOrderStatusTransitionWhatsappBestEffort(order, beforeOrder, order.getStatus());
     orderService.writeAuditFromPayment(order, beforeOrder, beforePayment, "webhook:" + provider, eventId);
     return Map.of("accepted", true, "paymentStatus", incoming.name(), "orderStatus", order.getStatus().name());
   }

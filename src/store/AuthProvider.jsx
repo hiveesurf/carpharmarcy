@@ -156,8 +156,8 @@ export function AuthProvider({ children }) {
 
   const sendOtp = useCallback(async (phone) => {
     try {
-      await authService.sendOtp(phone)
-      return { ok: true }
+      const res = await authService.sendOtp(phone)
+      return { ok: true, data: res?.data ?? null }
     } catch (e) {
       if (e?.status === 403) {
         return {

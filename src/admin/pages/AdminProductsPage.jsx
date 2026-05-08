@@ -27,6 +27,7 @@ function clipDescription(text, max = 140) {
 }
 
 const PAGE_SIZE = 5
+const LOW_STOCK_THRESHOLD = 5
 
 export function AdminProductsPage() {
   const { sessionRole } = useAuth()
@@ -43,6 +44,7 @@ export function AdminProductsPage() {
   const [nextPage, setNextPage] = useState(1)
   const [viewMode, setViewMode] = useState('list')
   const [listRefresh, setListRefresh] = useState(0)
+  const lowStockCount = items.filter((p) => Number(p?.totalStock ?? 0) <= LOW_STOCK_THRESHOLD).length
 
   useEffect(() => {
     let c = false
@@ -167,6 +169,11 @@ export function AdminProductsPage() {
           <p className="mt-1 text-sm text-mist">
             Manage pricing, stock, vehicle fitment, and profitability by product.
           </p>
+          {lowStockCount > 0 ? (
+            <p className="mt-2 text-xs text-flare">
+              Low stock alert: {lowStockCount} product(s) at or below {LOW_STOCK_THRESHOLD} units.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-xl border border-steel/80 p-0.5">
@@ -298,7 +305,18 @@ export function AdminProductsPage() {
                       <td className={`hidden px-4 py-3 text-right tabular-nums xl:table-cell ${(p.profitValue ?? 0) >= 0 ? 'text-accent' : 'text-flare'}`}>
                         {formatInr(p.profitValue ?? 0)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-mist">{p.totalStock ?? '—'}</td>
+                      <td
+                        className={`px-4 py-3 text-right tabular-nums ${
+                          Number(p.totalStock ?? 0) <= LOW_STOCK_THRESHOLD ? 'text-flare' : 'text-mist'
+                        }`}
+                      >
+                        {p.totalStock ?? '—'}
+                        {Number(p.totalStock ?? 0) <= LOW_STOCK_THRESHOLD ? (
+                          <span className="ml-2 rounded bg-flare-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-flare">
+                            Low
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="hidden px-4 py-3 font-mono text-[10px] text-mist xl:table-cell">
                         {p.createdAt
                           ? new Date(p.createdAt).toLocaleString(undefined, {

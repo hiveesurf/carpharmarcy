@@ -837,11 +837,6 @@ public class AdminApiService {
 
   @Transactional
   public Map<String, Object> patchOrderStatus(String id, String status) {
-    try {
-      OrderStatus.valueOf(status);
-    } catch (Exception e) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid status");
-    }
     return orderService.patchStatusAdmin(id, status);
   }
 
@@ -859,16 +854,21 @@ public class AdminApiService {
     if (!"delivery".equalsIgnoreCase(delivery.getRole())) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Assignee must be delivery role");
     }
-    if (!"free".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery admin is not free");
-    }
     OrderEntity order =
         orderRepository
             .findById(orderId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    boolean alreadyAssignedToOrder = email.equalsIgnoreCase(order.getAssignedDeliveryAdminEmail());
+    if (!alreadyAssignedToOrder && !"free".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery admin is not free");
+    }
     order.setAssignedDeliveryAdminEmail(email);
     order.setAssignedDeliveryAt(Instant.now());
     orderRepository.save(order);
+    if (!"busy".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+      delivery.setAvailabilityStatus("busy");
+      adminUserRepository.save(delivery);
+    }
     notificationService.notifyAdminEmail(
         email,
         "admin_alerts",
@@ -908,11 +908,14 @@ public class AdminApiService {
 
   @Transactional
   public Map<String, Object> createEmployee(Map<String, Object> body) {
-    String phone = String.valueOf(body.getOrDefault("phone", "")).trim();
+    String phone = normalizePhoneKey(String.valueOf(body.getOrDefault("phone", "")));
     String roleRaw = String.valueOf(body.getOrDefault("role", "sales"));
     UserRole role = UserRole.from(roleRaw);
     if (phone.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone required");
+    }
+    if (phone.length() != 10) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone must be 10 digits");
     }
     if (!(role == UserRole.sales || role == UserRole.delivery || role == UserRole.super_admin)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "invalid employee role");
@@ -920,7 +923,7 @@ public class AdminApiService {
     if (adminUserRepository.findByPhoneE164(phone).isPresent()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
     }
-    String syntheticEmail = "emp_" + phone.replaceAll("[^0-9]", "") + "@carnalysys.local";
+    String syntheticEmail = "emp_" + phone + "@carnalysys.local";
     AdminUser a = new AdminUser();
     a.setEmail(syntheticEmail);
     a.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
@@ -933,15 +936,18 @@ public class AdminApiService {
             ? uploadStorageService.persistVehicleImageIfDataUrl("employees", photoDataUrl)
             : null);
     a.setOnboardingStatus("pending");
-    a.setAvailabilityStatus(role == UserRole.delivery ? "offline" : "busy");
+    a.setAvailabilityStatus(role == UserRole.delivery ? "free" : "busy");
     adminUserRepository.save(a);
     return Map.of("employee", toEmployeeMap(a));
   }
 
   @Transactional
   public Map<String, Object> setEmployeeAvailability(String phone, String availability) {
-    String normalizedPhone = phone == null ? "" : phone.trim();
+    String normalizedPhone = normalizePhoneKey(phone);
     String value = availability == null ? "" : availability.trim().toLowerCase();
+    if (normalizedPhone.length() != 10) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone must be 10 digits");
+    }
     if (!(value.equals("free") || value.equals("busy") || value.equals("offline"))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be free/busy/offline");
     }
@@ -1136,6 +1142,17 @@ public class AdminApiService {
         "avatarUrl",
         userAvatarService.hasAvatar(u.getId()) ? userAvatarService.publicAvatarUrl(u.getId()) : "");
     return m;
+  }
+
+  private static String normalizePhoneKey(String phoneInput) {
+    String digits = phoneInput == null ? "" : phoneInput.replaceAll("\\D", "");
+    if (digits.startsWith("91") && digits.length() == 12) {
+      return digits.substring(2);
+    }
+    if (digits.length() > 10) {
+      return digits.substring(digits.length() - 10);
+    }
+    return digits;
   }
 
   private Map<String, Object> pagedResponse(

@@ -117,7 +117,11 @@ export function AdminOrdersPage() {
     ;(async () => {
       try {
         const list = await adminService.listEmployees()
-        setDeliveryEmployees((Array.isArray(list) ? list : []).filter((e) => e.role === 'delivery'))
+        setDeliveryEmployees(
+          (Array.isArray(list) ? list : []).filter(
+            (e) => String(e?.role || '').toLowerCase() === 'delivery',
+          ),
+        )
       } catch {
         setDeliveryEmployees([])
       }
@@ -194,6 +198,13 @@ export function AdminOrdersPage() {
     try {
       await adminService.assignDelivery(orderId, deliveryAdminEmail)
       setItems((prev) => prev.map((o) => (o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail } : o)))
+      setDeliveryEmployees((prev) =>
+        prev.map((employee) =>
+          employee.email === deliveryAdminEmail
+            ? { ...employee, availability: 'busy' }
+            : employee,
+        ),
+      )
     } catch (e) {
       setError(getFetchErrorMessage(e))
     }
@@ -397,7 +408,10 @@ export function AdminOrdersPage() {
                     >
                       <option value="">Assign delivery</option>
                       {deliveryEmployees
-                        .filter((d) => d.availability === 'free' || d.email === o.assignedDeliveryAdminEmail)
+                        .filter((d) => {
+                          const availability = String(d?.availability || '').toLowerCase()
+                          return availability === 'free' || d.email === o.assignedDeliveryAdminEmail
+                        })
                         .map((d) => (
                           <option key={d.email} value={d.email}>
                             {(d.name || d.email) + ` (${d.availability || 'offline'})`}

@@ -23,13 +23,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
-
   public record VerifyPayload(Map<String, Object> data, String refreshTokenRaw) {}
 
   /** Access payload + new refresh raw (rotated on each refresh). */
@@ -44,6 +44,8 @@ public class AuthService {
   private final JwtService jwtService;
   private final PasswordEncoder passwordEncoder;
   private final NotificationService notificationService;
+  private final WhatsappService whatsappService;
+  private final Environment environment;
   private final SecureRandom random = new SecureRandom();
 
   public AuthService(
@@ -55,7 +57,9 @@ public class AuthService {
       AdminUserRepository adminUserRepository,
       JwtService jwtService,
       PasswordEncoder passwordEncoder,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      WhatsappService whatsappService,
+      Environment environment) {
     this.appProperties = appProperties;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -65,23 +69,50 @@ public class AuthService {
     this.jwtService = jwtService;
     this.passwordEncoder = passwordEncoder;
     this.notificationService = notificationService;
+    this.whatsappService = whatsappService;
+    this.environment = environment;
   }
 
   @Transactional
   public Map<String, Object> sendOtp(String phoneDigits) {
-    if (phoneDigits == null || phoneDigits.length() < 10) {
+    String phoneKey = normalizePhoneKey(phoneDigits);
+    if (phoneKey.length() != 10) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid phone");
     }
+    String otp = appProperties.otp().demoCode();
+    boolean whatsappEnabled = whatsappService.isEnabled();
+    boolean whatsappSent = false;
+    if (whatsappEnabled) {
+      otp = String.format("%06d", random.nextInt(1_000_000));
+    }
     OtpChallenge ch = new OtpChallenge();
-    ch.setPhoneE164(phoneDigits);
-    ch.setCodeHash(passwordEncoder.encode(appProperties.otp().demoCode()));
+    ch.setPhoneE164(phoneKey);
+    ch.setCodeHash(passwordEncoder.encode(otp));
     ch.setExpiresAt(Instant.now().plusSeconds(appProperties.otp().ttlSeconds()));
     otpChallengeRepository.save(ch);
+
+    if (whatsappEnabled) {
+      try {
+        whatsappService.sendOtp(phoneKey, otp);
+        whatsappSent = true;
+      } catch (RuntimeException ex) {
+        if (isLocalDevProfile()) {
+          // LOCAL DEV ONLY - remove before production
+          whatsappSent = false;
+        } else {
+          throw ex;
+        }
+      }
+    }
+
     Map<String, Object> data = new LinkedHashMap<>();
     data.put("sent", true);
     data.put("ttlSeconds", appProperties.otp().ttlSeconds());
-    data.put("demoOtp", appProperties.otp().demoCode());
-    UserEntity existingUser = userRepository.findByPhoneE164(phoneDigits).orElse(null);
+    if (!whatsappEnabled || !whatsappSent || isLocalDevProfile()) {
+      // LOCAL DEV ONLY - remove before production
+      data.put("demoOtp", otp);
+    }
+    UserEntity existingUser = userRepository.findByPhoneE164(phoneKey).orElse(null);
     if (existingUser != null) {
       notificationService.notifyUser(
           existingUser.getId(),
@@ -90,19 +121,20 @@ public class AuthService {
           "A login OTP was requested for your account.",
           "auth",
           ch.getId().toString(),
-          Map.of("phone", phoneDigits));
+          Map.of("phone", phoneKey));
     }
     return data;
   }
 
   @Transactional
   public VerifyPayload verifyOtp(String phoneDigits, String otp) {
-    if (phoneDigits == null || phoneDigits.length() < 10) {
+    String phoneKey = normalizePhoneKey(phoneDigits);
+    if (phoneKey.length() != 10) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid phone");
     }
     var row =
         otpChallengeRepository
-            .findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc(phoneDigits)
+            .findTopByPhoneE164AndConsumedAtIsNullOrderByCreatedAtDesc(phoneKey)
             .orElseThrow(
                 () -> new ApiException(HttpStatus.BAD_REQUEST, "OTP_EXPIRED", "Request a new OTP"));
     if (row.getExpiresAt().isBefore(Instant.now())) {
@@ -116,25 +148,25 @@ public class AuthService {
 
     UserEntity user =
         userRepository
-            .findByPhoneE164(phoneDigits)
+            .findByPhoneE164(phoneKey)
             .orElseGet(
                 () -> {
                   UserEntity u = new UserEntity();
-                  u.setPhoneE164(phoneDigits);
-                  u.setDisplayName("User " + phoneDigits.substring(Math.max(0, phoneDigits.length() - 4)));
+                  u.setPhoneE164(phoneKey);
+                  u.setDisplayName("User " + phoneKey.substring(Math.max(0, phoneKey.length() - 4)));
                   userRepository.saveAndFlush(u);
                   UserProfile prof = new UserProfile();
                   prof.setUser(u);
                   prof.setFullName(u.getDisplayName());
                   prof.setEmail(null);
-                  prof.setPhone(phoneDigits);
+                  prof.setPhone(phoneKey);
                   userProfileRepository.save(prof);
                   return userRepository
                       .findById(u.getId())
                       .orElseThrow(() -> new IllegalStateException("user not persisted"));
                 });
 
-    promoteRoleAndActivateEmployeeIfMatched(user, phoneDigits);
+    promoteRoleAndActivateEmployeeIfMatched(user, phoneKey);
 
     String accessToken = jwtService.createAccessToken(user.getId(), user.getRole());
     String refreshRaw = newRefreshRaw();
@@ -155,7 +187,7 @@ public class AuthService {
         "You signed in successfully.",
         "auth",
         row.getId().toString(),
-        Map.of("phone", phoneDigits));
+        Map.of("phone", phoneKey));
     return new VerifyPayload(data, refreshRaw);
   }
 
@@ -293,5 +325,26 @@ public class AuthService {
       employee.setLastLoginAt(Instant.now());
       adminUserRepository.save(employee);
     }
+  }
+
+  private static String normalizePhoneKey(String phoneInput) {
+    String digits = phoneInput == null ? "" : phoneInput.replaceAll("\\D", "");
+    if (digits.startsWith("91") && digits.length() == 12) {
+      return digits.substring(2);
+    }
+    if (digits.length() > 10) {
+      return digits.substring(digits.length() - 10);
+    }
+    return digits;
+  }
+
+  private boolean isLocalDevProfile() {
+    for (String p : environment.getActiveProfiles()) {
+      String v = p == null ? "" : p.trim().toLowerCase();
+      if ("local".equals(v) || "dev".equals(v)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

@@ -7,6 +7,13 @@ import { Button } from '../ui/Button'
 import { getAccessToken } from '../../lib/authTokens.js'
 import { resolveSessionRole } from '../../lib/jwtPayload.js'
 
+function normalizeMobileInput(value) {
+  const digits = String(value ?? '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.length <= 10) return digits
+  return digits.slice(-10)
+}
+
 export function AuthModals() {
   const navigate = useNavigate()
   const { modalOpen, closeAuth, sendOtp, verifyOtp } = useAuth()
@@ -33,6 +40,10 @@ export function AuthModals() {
     const r = await sendOtp(phone)
     if (!r.ok) setMessage(r.message)
     else {
+      if (import.meta.env.DEV && r?.data?.demoOtp) {
+        // LOCAL DEV ONLY - remove before production
+        setMessage(`Demo OTP: ${r.data.demoOtp}`)
+      }
       setStep('otp')
     }
   }
@@ -109,7 +120,8 @@ export function AuthModals() {
                     inputMode="numeric"
                     autoComplete="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    onChange={(e) => setPhone(normalizeMobileInput(e.target.value))}
+                    maxLength={10}
                     className="w-full border border-fog/15 bg-ink/50 px-3 py-2.5 font-sans text-fog outline-none focus:border-accent/50"
                     placeholder="9876543210"
                   />

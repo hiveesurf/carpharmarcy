@@ -25,11 +25,13 @@ import com.carnalysys.repo.OrderStatusAuditRepository;
 import com.carnalysys.repo.PaymentEventRepository;
 import com.carnalysys.repo.PaymentTransactionRepository;
 import com.carnalysys.repo.ProductRepository;
+import com.carnalysys.repo.AdminUserRepository;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,6 +42,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import com.carnalysys.repo.UserProfileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.HttpStatus;
@@ -48,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OrderService {
+  private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
   private final OrderRepository orderRepository;
   private final OrderLineRepository orderLineRepository;
@@ -59,8 +64,10 @@ public class OrderService {
   private final OrderStatusAuditRepository orderStatusAuditRepository;
   private final PaymentEventRepository paymentEventRepository;
   private final PaymentTransactionRepository paymentTransactionRepository;
+  private final AdminUserRepository adminUserRepository;
   private final UploadStorageService uploadStorageService;
   private final NotificationService notificationService;
+  private final WhatsappService whatsappService;
 
   public OrderService(
       OrderRepository orderRepository,
@@ -73,8 +80,10 @@ public class OrderService {
       OrderStatusAuditRepository orderStatusAuditRepository,
       PaymentEventRepository paymentEventRepository,
       PaymentTransactionRepository paymentTransactionRepository,
+      AdminUserRepository adminUserRepository,
       UploadStorageService uploadStorageService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      WhatsappService whatsappService) {
     this.orderRepository = orderRepository;
     this.orderLineRepository = orderLineRepository;
     this.addressRepository = addressRepository;
@@ -85,8 +94,10 @@ public class OrderService {
     this.orderStatusAuditRepository = orderStatusAuditRepository;
     this.paymentEventRepository = paymentEventRepository;
     this.paymentTransactionRepository = paymentTransactionRepository;
+    this.adminUserRepository = adminUserRepository;
     this.uploadStorageService = uploadStorageService;
     this.notificationService = notificationService;
+    this.whatsappService = whatsappService;
   }
 
   @Transactional
@@ -206,6 +217,7 @@ public class OrderService {
         "order",
         order.getId(),
         Map.of("status", order.getStatus().name()));
+    notifyOrderStatusWhatsappBestEffort(order, order.getStatus());
 
     UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
     UserProfile profile = userProfileRepository.findById(userRef).orElse(null);
@@ -474,7 +486,7 @@ public class OrderService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
     OrderStatus next;
     try {
-      next = OrderStatus.valueOf(status);
+      next = normalizeAdminStatus(status);
     } catch (IllegalArgumentException ex) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid status");
     }
@@ -492,6 +504,7 @@ public class OrderService {
     var auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth != null && auth.isAuthenticated()) actor = auth.getName();
     writeStatusAudit(o, before, next, "admin", actor, "admin_status_patch");
+    updateAssignedDeliveryAvailabilityOnStatusTransition(o, before, next);
     notificationService.notifyUser(
         o.getUser().getId(),
         "order_status",
@@ -500,12 +513,54 @@ public class OrderService {
         "order",
         o.getId(),
         Map.of("from", before.name(), "to", next.name()));
+    notifyOrderStatusWhatsappBestEffort(o, next);
     UserProfile profile =
         userProfileRepository
             .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
             .orElse(null);
     return Map.of(
         "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true));
+  }
+
+  private static OrderStatus normalizeAdminStatus(String status) {
+    if (status == null) throw new IllegalArgumentException("status required");
+    String raw = status.trim().toLowerCase();
+    if ("dispatched".equals(raw)) {
+      return OrderStatus.shipped;
+    }
+    return OrderStatus.valueOf(raw);
+  }
+
+  private void updateAssignedDeliveryAvailabilityOnStatusTransition(
+      OrderEntity order, OrderStatus before, OrderStatus after) {
+    String deliveryEmail = order.getAssignedDeliveryAdminEmail();
+    if (deliveryEmail == null || deliveryEmail.isBlank()) return;
+
+    if (before != after && after == OrderStatus.shipped) {
+      syncDeliveryAvailabilityFromAssignedOrders(deliveryEmail, order.getId());
+    }
+  }
+
+  private void syncDeliveryAvailabilityFromAssignedOrders(String deliveryEmail, String statusChangedOrderId) {
+    var deliveryOpt = adminUserRepository.findByEmailIgnoreCase(deliveryEmail);
+    if (deliveryOpt.isEmpty()) return;
+    var delivery = deliveryOpt.get();
+
+    boolean hasOtherActiveAssignedOrders =
+        orderRepository.findByAssignedDeliveryAdminEmailOrderByPlacedAtDesc(deliveryEmail).stream()
+            .filter(o -> !Objects.equals(o.getId(), statusChangedOrderId))
+            .anyMatch(o -> isDeliveryActiveStatus(o.getStatus()));
+
+    String target = hasOtherActiveAssignedOrders ? "busy" : "free";
+    if (!target.equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+      delivery.setAvailabilityStatus(target);
+      adminUserRepository.save(delivery);
+    }
+  }
+
+  private static boolean isDeliveryActiveStatus(OrderStatus status) {
+    return EnumSet.of(OrderStatus.placed, OrderStatus.confirmed, OrderStatus.processing)
+        .contains(status);
   }
 
   private static PaymentMethod parsePaymentMethod(String raw) {
@@ -639,6 +694,9 @@ public class OrderService {
           "order",
           locked.getId(),
           Map.of("paymentStatus", locked.getPaymentStatus().name(), "orderStatus", locked.getStatus().name()));
+      if (beforeStatus != locked.getStatus()) {
+        notifyOrderStatusWhatsappBestEffort(locked, locked.getStatus());
+      }
       if (beforePay != locked.getPaymentStatus()) {
         changed++;
       }
@@ -669,6 +727,39 @@ public class OrderService {
           "order",
           order.getId(),
           Map.of("paymentStatus", order.getPaymentStatus().name(), "orderStatus", order.getStatus().name()));
+    }
+  }
+
+  /**
+   * Used by other services (e.g. webhooks) after a status transition.
+   * This must never throw.
+   */
+  public void notifyOrderStatusTransitionWhatsappBestEffort(
+      OrderEntity order, OrderStatus before, OrderStatus after) {
+    if (order == null || after == null) return;
+    if (before == after) return;
+    notifyOrderStatusWhatsappBestEffort(order, after);
+  }
+
+  private void notifyOrderStatusWhatsappBestEffort(OrderEntity order, OrderStatus status) {
+    try {
+      if (order == null || status == null) return;
+      UserEntity user = order.getUser();
+      String phone = user != null ? user.getPhoneE164() : null;
+      if (phone == null || phone.isBlank()) return;
+      boolean sent = whatsappService.sendOrderStatusUpdateBestEffort(phone, order.getId(), status);
+      if (sent) {
+        log.info(
+            "WhatsApp order status notification sent: orderId={}, status={}",
+            order.getId(),
+            status.name());
+      }
+    } catch (RuntimeException ex) {
+      log.error(
+          "WhatsApp order status notification failed (ignored): orderId={}, status={}",
+          order != null ? order.getId() : null,
+          status != null ? status.name() : null,
+          ex);
     }
   }
 

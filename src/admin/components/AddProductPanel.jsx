@@ -39,6 +39,20 @@ export function AddProductPanel({ onCreated }) {
   const [vehicleVariant, setVehicleVariant] = useState('')
   const [vehicleFuel, setVehicleFuel] = useState('')
   const [vehicleError, setVehicleError] = useState('')
+  const [carFormOpen, setCarFormOpen] = useState(false)
+  const [carBusy, setCarBusy] = useState(false)
+  const [carMsg, setCarMsg] = useState(null)
+  const [newCar, setNewCar] = useState({
+    make: '',
+    model: '',
+    variant: '',
+    modelYear: '',
+    fuel: '',
+    transmission: '',
+    engineCc: '',
+    notes: '',
+    published: true,
+  })
 
   const inputClass =
     'w-full border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog outline-none focus:border-accent/60'
@@ -52,8 +66,8 @@ export function AddProductPanel({ onCreated }) {
   const currentStock = useMemo(() => opening + inQty - outQty, [opening, inQty, outQty])
   const selectedCars = useMemo(() => {
     if (!Array.isArray(cars) || cars.length === 0 || selectedCarIds.length === 0) return []
-    const selected = new Set(selectedCarIds)
-    return cars.filter((car) => selected.has(car.id))
+    const selected = new Set(selectedCarIds.map((id) => String(id)))
+    return cars.filter((car) => selected.has(String(car?.id ?? '')))
   }, [cars, selectedCarIds])
   const uniqueSorted = useCallback((values) => {
     return [...new Set(values.filter((v) => v != null && String(v).trim() !== '').map((v) => String(v).trim()))]
@@ -86,7 +100,18 @@ export function AddProductPanel({ onCreated }) {
   const loadCars = useCallback(async () => {
     try {
       const list = await adminService.listCars()
-      setCars(Array.isArray(list) ? list : [])
+      const activeCars = Array.isArray(list)
+        ? list.filter((car) => {
+            const status = String(car?.status || '').trim().toLowerCase()
+            return !(
+              car?.deleted === true ||
+              car?.isDeleted === true ||
+              Boolean(car?.deletedAt) ||
+              status === 'deleted'
+            )
+          })
+        : []
+      setCars(activeCars)
     } catch {
       setCars([])
     }
@@ -98,6 +123,24 @@ export function AddProductPanel({ onCreated }) {
       loadCars()
     }
   }, [open, loadCategories, loadCars])
+
+  useEffect(() => {
+    if (!msg?.text) return undefined
+    const timeoutMs = msg.type === 'ok' ? 4000 : 7000
+    const timer = window.setTimeout(() => {
+      setMsg(null)
+    }, timeoutMs)
+    return () => window.clearTimeout(timer)
+  }, [msg])
+
+  useEffect(() => {
+    if (!carMsg?.text) return undefined
+    const timeoutMs = carMsg.type === 'ok' ? 4000 : 7000
+    const timer = window.setTimeout(() => {
+      setCarMsg(null)
+    }, timeoutMs)
+    return () => window.clearTimeout(timer)
+  }, [carMsg])
 
   async function onPickPrimaryFile(ev) {
     const f = ev.target.files?.[0]
@@ -237,15 +280,82 @@ export function AddProductPanel({ onCreated }) {
       setVehicleError('No matching car found for the selected combination.')
       return
     }
-    if (selectedCarIds.includes(picked.id)) {
+    const pickedId = String(picked.id)
+    if (selectedCarIds.includes(pickedId)) {
       setVehicleError('This vehicle is already selected.')
       return
     }
-    setSelectedCarIds((prev) => [...prev, picked.id])
+    setSelectedCarIds((prev) => [...prev, pickedId])
   }
 
   function removeSelectedVehicle(id) {
     setSelectedCarIds((prev) => prev.filter((x) => x !== id))
+  }
+
+  function resetNewCarForm() {
+    setNewCar({
+      make: '',
+      model: '',
+      variant: '',
+      modelYear: '',
+      fuel: '',
+      transmission: '',
+      engineCc: '',
+      notes: '',
+      published: true,
+    })
+  }
+
+  async function submitNewCar(e) {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    const make = newCar.make.trim()
+    const model = newCar.model.trim()
+    if (!make || !model) {
+      setCarMsg({ type: 'err', text: 'Brand and model are required to create a car.' })
+      return
+    }
+
+    setCarBusy(true)
+    setCarMsg(null)
+    setVehicleError('')
+    try {
+      const createdCar = await adminService.createCar({
+        brandName: make,
+        make,
+        model,
+        variant: newCar.variant.trim() || null,
+        modelYear: newCar.modelYear ? Number(newCar.modelYear) : null,
+        fuel: newCar.fuel.trim() || null,
+        transmission: newCar.transmission.trim() || null,
+        engineCc: newCar.engineCc ? Number(newCar.engineCc) : null,
+        notes: newCar.notes.trim() || null,
+        published: Boolean(newCar.published),
+      })
+
+      const createdId = createdCar?.id != null ? String(createdCar.id) : ''
+      if (!createdId) {
+        throw new Error('Could not identify created car id.')
+      }
+
+      setCars((prev) => {
+        const nextCar = { ...createdCar, id: createdId }
+        const filtered = prev.filter((car) => String(car?.id ?? '') !== createdId)
+        return [nextCar, ...filtered]
+      })
+      setSelectedCarIds((prev) => (prev.includes(createdId) ? prev : [...prev, createdId]))
+
+      await loadCars()
+      setCarFormOpen(false)
+      resetNewCarForm()
+      setCarMsg({ type: 'ok', text: 'Car created and selected successfully.' })
+    } catch (err) {
+      setCarMsg({ type: 'err', text: getFetchErrorMessage(err) })
+    } finally {
+      setCarBusy(false)
+    }
   }
 
   async function submit(e) {
@@ -488,12 +598,138 @@ export function AddProductPanel({ onCreated }) {
               <div className="flex justify-end">
                 <button
                   type="button"
+                  onClick={() => {
+                    setCarFormOpen((v) => !v)
+                    setCarMsg(null)
+                    setVehicleError('')
+                  }}
+                  className="mr-2 rounded-lg border border-steel/70 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/60 hover:text-hud"
+                >
+                  {carFormOpen ? 'Cancel New Car' : 'Add New Car'}
+                </button>
+                <button
+                  type="button"
                   onClick={addVehicleSelection}
                   className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-accent hover:bg-accent/20"
                 >
                   Add Vehicle
                 </button>
               </div>
+              {carFormOpen ? (
+                <div
+                  className="space-y-3 rounded-lg border border-steel/40 bg-ink/20 p-3"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }
+                  }}
+                >
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-hud">
+                    Create car inline
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <input
+                      required
+                      placeholder="Brand"
+                      value={newCar.make}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, make: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      required
+                      placeholder="Model"
+                      value={newCar.model}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, model: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      placeholder="Variant"
+                      value={newCar.variant}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, variant: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      type="number"
+                      min={1900}
+                      max={2100}
+                      placeholder="Model year"
+                      value={newCar.modelYear}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, modelYear: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      placeholder="Fuel"
+                      value={newCar.fuel}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, fuel: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      placeholder="Transmission"
+                      value={newCar.transmission}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, transmission: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="Engine CC"
+                      value={newCar.engineCc}
+                      onChange={(e) => setNewCar((prev) => ({ ...prev, engineCc: e.target.value }))}
+                      className={inputClass}
+                    />
+                    <label className="flex items-center gap-2 rounded-xl border border-steel/70 px-3 py-2 text-xs text-fog">
+                      <input
+                        type="checkbox"
+                        checked={newCar.published}
+                        onChange={(e) => setNewCar((prev) => ({ ...prev, published: e.target.checked }))}
+                      />
+                      Published
+                    </label>
+                  </div>
+                  <textarea
+                    rows={2}
+                    placeholder="Notes (optional)"
+                    value={newCar.notes}
+                    onChange={(e) => setNewCar((prev) => ({ ...prev, notes: e.target.value }))}
+                    className={`${inputClass} resize-y`}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCarFormOpen(false)
+                        setCarMsg(null)
+                        resetNewCarForm()
+                      }}
+                      className="rounded-lg border border-steel/70 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-steel/40"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={carBusy}
+                      onClick={(e) => {
+                        void submitNewCar(e)
+                      }}
+                      className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-accent hover:bg-accent/20 disabled:opacity-50"
+                    >
+                      {carBusy ? 'Creating…' : 'Create and Select Car'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {carMsg ? (
+                <p
+                  className={`rounded-lg border px-3 py-2 text-xs ${
+                    carMsg.type === 'ok'
+                      ? 'border-accent/40 bg-accent-muted text-fog'
+                      : 'border-flare/40 bg-flare-muted text-fog'
+                  }`}
+                >
+                  {carMsg.text}
+                </p>
+              ) : null}
               {vehicleError ? <p className="text-xs text-flare">{vehicleError}</p> : null}
               <div className="overflow-x-auto rounded-lg border border-steel/40">
                 <table className="w-full min-w-[760px] text-left text-xs">
