@@ -104,10 +104,14 @@ export function adminPatchOrderStatus(id, status) {
   return apiPatch(`/admin/orders/${encodeURIComponent(id)}/status`, { status })
 }
 
-export function adminListUsers({ page = 0, size = 5 } = {}) {
+export function adminListUsers({ page = 0, size = 5, phone, role } = {}) {
   const q = new URLSearchParams()
   q.set('page', String(page))
   q.set('size', String(size))
+  const phoneTrim = phone != null && String(phone).trim() !== '' ? String(phone).trim() : ''
+  if (phoneTrim) q.set('phone', phoneTrim)
+  const roleTrim = role != null && String(role).trim() !== '' ? String(role).trim() : ''
+  if (roleTrim) q.set('role', roleTrim)
   return apiGet(`/admin/users?${q.toString()}`)
 }
 
@@ -134,8 +138,24 @@ export function adminAssignDelivery(orderId, deliveryAdminEmail) {
   return apiPatch(`/admin/orders/${encodeURIComponent(orderId)}/assign-delivery`, { deliveryAdminEmail })
 }
 
-export function adminListDeliveryOrders() {
-  return apiGet('/admin/delivery/orders')
+/**
+ * @param {{ from?: string, to?: string, month?: string }} [query] - month `yyyy-MM`, from/to `yyyy-MM-dd` (UTC). Backend prefers `month` when set.
+ */
+export function adminListDeliveryOrders(query = {}) {
+  const q = new URLSearchParams()
+  if (query.from) q.set('from', String(query.from))
+  if (query.to) q.set('to', String(query.to))
+  if (query.month) q.set('month', String(query.month))
+  const s = q.toString()
+  return apiGet(`/admin/delivery/orders${s ? `?${s}` : ''}`)
+}
+
+export function adminDeliveryMeSummary() {
+  return apiGet('/admin/delivery/me/summary')
+}
+
+export function adminSetMyDeliveryAvailability(availability) {
+  return apiPatch('/admin/delivery/me/availability', { availability })
 }
 
 export function adminProductAudit(id) {

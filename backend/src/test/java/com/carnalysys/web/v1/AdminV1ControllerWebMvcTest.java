@@ -2,8 +2,10 @@ package com.carnalysys.web.v1;
 
 import static com.carnalysys.testsupport.SecurityTestUtils.asAdmin;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,6 +20,7 @@ import com.carnalysys.service.AdminApiService;
 import com.carnalysys.service.NotificationService;
 import com.carnalysys.testsupport.ControllerSliceTestBase;
 import com.carnalysys.testsupport.JsonEnvelopeMatchers;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -171,7 +174,19 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void categoriesOk() throws Exception {
-    when(adminApiService.listCategories()).thenReturn(List.of());
+    when(adminApiService.listCategoriesPage(0, 5))
+        .thenReturn(
+            Map.of(
+                "items",
+                List.of(),
+                "page",
+                0,
+                "size",
+                5,
+                "hasMore",
+                false,
+                "nextPage",
+                0));
     mockMvc
         .perform(get("/api/v1/admin/categories").with(asAdmin()))
         .andExpect(status().isOk())
@@ -250,7 +265,8 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void usersOk() throws Exception {
-    when(adminApiService.listUsers()).thenReturn(List.of());
+    when(adminApiService.listUsersPage(anyInt(), anyInt(), nullable(String.class), nullable(String.class)))
+        .thenReturn(Map.of("items", List.of(), "page", 0, "size", 5, "hasMore", false, "nextPage", 0));
     mockMvc
         .perform(get("/api/v1/admin/users").with(asAdmin()))
         .andExpect(status().isOk())
@@ -268,7 +284,19 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void carsListOkWithBrandFilter() throws Exception {
-    when(adminApiService.listCarsAdmin(false, "Toyota")).thenReturn(List.of(Map.of("id", "car_1")));
+    when(adminApiService.listCarsAdminPage(eq(false), eq("Toyota"), eq(0), eq(5)))
+        .thenReturn(
+            Map.of(
+                "items",
+                List.of(Map.of("id", "car_1")),
+                "page",
+                0,
+                "size",
+                5,
+                "hasMore",
+                false,
+                "nextPage",
+                0));
     mockMvc
         .perform(get("/api/v1/admin/cars").with(asAdmin()).param("brand", "Toyota"))
         .andExpect(status().isOk())
@@ -335,7 +363,8 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void deliveryOrdersOk() throws Exception {
-    when(adminApiService.listDeliveryOrdersForCurrent()).thenReturn(List.of(Map.of("id", "ord_1")));
+    when(adminApiService.listDeliveryOrdersForCurrent(null, null, null))
+        .thenReturn(List.of(Map.of("id", "ord_1")));
     mockMvc
         .perform(get("/api/v1/admin/delivery/orders").with(asAdmin()))
         .andExpect(status().isOk())
@@ -343,8 +372,33 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
+  void deliveryMeSummaryOk() throws Exception {
+    Map<String, Object> summary = new LinkedHashMap<>();
+    summary.put("deliveriesDone", 3L);
+    summary.put("lastLoginAt", "2026-05-01T10:00:00Z");
+    summary.put("lastLogoutAt", null);
+    when(adminApiService.deliveryPartnerSummaryForCurrent()).thenReturn(summary);
+    mockMvc
+        .perform(get("/api/v1/admin/delivery/me/summary").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.deliveriesDone").value(3));
+  }
+
+  @Test
   void employeesListOk() throws Exception {
-    when(adminApiService.listEmployees()).thenReturn(List.of(Map.of("phone", "+911234567890")));
+    when(adminApiService.listEmployeesPage(0, 5))
+        .thenReturn(
+            Map.of(
+                "items",
+                List.of(Map.of("phone", "+911234567890")),
+                "page",
+                0,
+                "size",
+                5,
+                "hasMore",
+                false,
+                "nextPage",
+                0));
     mockMvc
         .perform(get("/api/v1/admin/employees").with(asAdmin()))
         .andExpect(status().isOk())

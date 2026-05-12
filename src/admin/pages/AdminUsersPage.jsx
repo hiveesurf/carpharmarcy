@@ -3,6 +3,18 @@ import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 
 const PAGE_SIZE = 5
+const PHONE_SEARCH_DEBOUNCE_MS = 350
+
+const filterInputClass =
+  'w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog outline-none focus:border-accent/60'
+
+const ROLE_OPTIONS = [
+  { value: '', label: 'All Roles' },
+  { value: 'user', label: 'user' },
+  { value: 'super_admin', label: 'super_admin' },
+  { value: 'sales', label: 'sales' },
+  { value: 'delivery', label: 'delivery' },
+]
 
 export function AdminUsersPage() {
   const [items, setItems] = useState([])
@@ -11,12 +23,27 @@ export function AdminUsersPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [nextPage, setNextPage] = useState(1)
+  const [phoneSearch, setPhoneSearch] = useState('')
+  const [phoneForApi, setPhoneForApi] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setPhoneForApi(phoneSearch.trim())
+    }, PHONE_SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [phoneSearch])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const result = await adminService.listUsersPage({ page: 0, size: PAGE_SIZE })
+      const result = await adminService.listUsersPage({
+        page: 0,
+        size: PAGE_SIZE,
+        phone: phoneForApi || undefined,
+        role: roleFilter || undefined,
+      })
       setItems(result.items)
       setHasMore(result.hasMore)
       setNextPage(result.nextPage)
@@ -28,10 +55,10 @@ export function AdminUsersPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [phoneForApi, roleFilter])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   async function loadMore() {
@@ -39,7 +66,12 @@ export function AdminUsersPage() {
     setLoadingMore(true)
     setError(null)
     try {
-      const result = await adminService.listUsersPage({ page: nextPage, size: PAGE_SIZE })
+      const result = await adminService.listUsersPage({
+        page: nextPage,
+        size: PAGE_SIZE,
+        phone: phoneForApi || undefined,
+        role: roleFilter || undefined,
+      })
       setItems((prev) => [...prev, ...result.items])
       setHasMore(result.hasMore)
       setNextPage(result.nextPage)
@@ -61,11 +93,44 @@ export function AdminUsersPage() {
         </div>
         <button
           type="button"
-          onClick={() => load()}
+          onClick={() => void load()}
           className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent"
         >
           Refresh
         </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="admin-users-phone-search" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+            SEARCH BY PHONE
+          </label>
+          <input
+            id="admin-users-phone-search"
+            type="text"
+            value={phoneSearch}
+            onChange={(e) => setPhoneSearch(e.target.value)}
+            autoComplete="off"
+            className={filterInputClass}
+          />
+        </div>
+        <div>
+          <label htmlFor="admin-users-role-filter" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+            FILTER BY ROLE
+          </label>
+          <select
+            id="admin-users-role-filter"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className={filterInputClass}
+          >
+            {ROLE_OPTIONS.map((o) => (
+              <option key={o.value || 'all'} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && (

@@ -3,7 +3,6 @@ import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 
-const availabilityOptions = ['free', 'busy', 'offline']
 const MAX_RAW_FILE = 12 * 1024 * 1024
 const PAGE_SIZE = 5
 
@@ -81,15 +80,6 @@ export function AdminEmployeesPage() {
     }
   }
 
-  async function updateAvailability(phone, availability) {
-    try {
-      await adminService.setEmployeeAvailability(phone, availability)
-      setItems((prev) => prev.map((x) => (x.phone === phone ? { ...x, availability } : x)))
-    } catch (e) {
-      setError(getFetchErrorMessage(e))
-    }
-  }
-
   async function onPhotoPick(ev) {
     const f = ev.target.files?.[0]
     ev.target.value = ''
@@ -160,9 +150,7 @@ export function AdminEmployeesPage() {
                   <td className="px-4 py-3 uppercase text-mist">{row.status || 'pending'}</td>
                   <td className="px-4 py-3">
                     {row.role === 'delivery' ? (
-                      <select value={row.availability || 'offline'} onChange={(e) => updateAvailability(row.phone, e.target.value)} className="rounded-lg border border-steel/80 bg-ink/40 px-2 py-1 text-xs text-fog">
-                        {availabilityOptions.map((x) => <option key={x} value={x}>{x}</option>)}
-                      </select>
+                      <span className="uppercase text-mist">{row.availability || 'offline'}</span>
                     ) : (
                       <span className="text-mist">—</span>
                     )}

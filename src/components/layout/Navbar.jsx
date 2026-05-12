@@ -83,7 +83,9 @@ export function Navbar() {
   const [q, setQ] = useState('')
   const { theme, toggleTheme } = useTheme()
   const { itemCount, openCart } = useCart()
-  const { user, isAdmin, signOut, openAuth, authHydrated } = useAuth()
+  const { user, isAdmin, signOut, openAuth, authHydrated, sessionRole } = useAuth()
+  const adminButtonLabel =
+    sessionRole === 'delivery' || user?.role === 'delivery' ? 'Delivery' : 'Admin'
   const {
     items: notifications,
     unreadCount,
@@ -317,10 +319,10 @@ export function Navbar() {
                 <Link
                   to="/admin"
                   className="flex h-10 items-center gap-1 rounded-xl border border-accent/50 px-3 font-sans text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
-                  title="Admin dashboard"
+                  title={`${adminButtonLabel} dashboard`}
                 >
                   <LayoutDashboard size={16} strokeWidth={2} />
-                  Admin
+                  {adminButtonLabel}
                 </Link>
               )}
               <div className="relative" ref={accountMenuRef}>
@@ -475,7 +477,7 @@ export function Navbar() {
                       onClick={() => setOpen(false)}
                     >
                       <LayoutDashboard size={16} />
-                      Admin dashboard
+                      {adminButtonLabel} dashboard
                     </Link>
                   )}
                   <Link

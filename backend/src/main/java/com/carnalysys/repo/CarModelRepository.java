@@ -30,4 +30,11 @@ public interface CarModelRepository extends JpaRepository<CarModelEntity, String
   Page<CarModelEntity> findByMakeIgnoreCaseAndDeletedAtIsNull(String make, Pageable pageable);
 
   Page<CarModelEntity> findByDeletedAtIsNull(Pageable pageable);
+
+  Page<CarModelEntity> findByDeletedAtIsNullAndMakeIgnoreCase(String make, Pageable pageable);
+
+  Page<CarModelEntity> findByPublishedTrueAndDeletedAtIsNull(Pageable pageable);
+
+  Page<CarModelEntity> findByPublishedTrueAndDeletedAtIsNullAndMakeIgnoreCase(
+      String make, Pageable pageable);
 }

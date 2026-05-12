@@ -263,11 +263,12 @@ public class AuthService {
           .findByTokenHashAndRevokedAtIsNull(sha256Hex(refreshRaw.trim()))
           .ifPresent(
               r -> {
+                UserEntity user = r.getUser();
                 r.setRevokedAt(Instant.now());
                 refreshTokenRepository.save(r);
-                if (r.getUser() != null && r.getUser().getId() != null) {
+                if (user != null && user.getId() != null) {
                   notificationService.notifyUser(
-                      r.getUser().getId(),
+                      user.getId(),
                       "auth_security",
                       "Logged out",
                       "You logged out from your account.",
@@ -275,6 +276,7 @@ public class AuthService {
                       r.getId().toString(),
                       Map.of());
                 }
+                markDeliveryEmployeeOffline(user);
               });
     }
   }
@@ -320,11 +322,30 @@ public class AuthService {
         employee.setFirstLoginAt(Instant.now());
       }
       employee.setLastLoginAt(Instant.now());
+      if ("delivery".equalsIgnoreCase(employee.getRole())) {
+        employee.setAvailabilityStatus("free");
+      }
       adminUserRepository.save(employee);
-    } else if (employee.getLastLoginAt() == null) {
-      employee.setLastLoginAt(Instant.now());
+    } else {
+      if (employee.getLastLoginAt() == null) {
+        employee.setLastLoginAt(Instant.now());
+      }
+      if ("delivery".equalsIgnoreCase(employee.getRole())) {
+        employee.setAvailabilityStatus("free");
+      }
       adminUserRepository.save(employee);
     }
+  }
+
+  private void markDeliveryEmployeeOffline(UserEntity user) {
+    if (user == null) return;
+    String phone = user.getPhoneE164();
+    if (phone == null || phone.isBlank()) return;
+    AdminUser employee = adminUserRepository.findByPhoneE164(phone).orElse(null);
+    if (employee == null || !"delivery".equalsIgnoreCase(employee.getRole())) return;
+    employee.setAvailabilityStatus("offline");
+    employee.setLastLogoutAt(Instant.now());
+    adminUserRepository.save(employee);
   }
 
   private static String normalizePhoneKey(String phoneInput) {

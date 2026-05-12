@@ -477,6 +477,46 @@ public class OrderService {
     return toOrderMap(order, lines, null, profile, false);
   }
 
+  /**
+   * Delivery partner view: no totals, unit prices, payment fields, or payment-adjacent metadata.
+   */
+  @Transactional(readOnly = true)
+  public Map<String, Object> toDeliveryPartnerOrderMap(OrderEntity order, List<OrderLine> lines) {
+    UserProfile profile =
+        userProfileRepository
+            .findById(Objects.requireNonNull(order.getUser().getId(), "order user id"))
+            .orElse(null);
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", order.getId());
+    UserEntity customer = order.getUser();
+    m.put("userId", customer.getId().toString());
+    putCustomerFields(m, customer, profile);
+    m.put("status", order.getStatus().name());
+    List<Map<String, Object>> ls = new ArrayList<>();
+    for (OrderLine ol : lines) {
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("productId", ol.getProductId());
+      row.put("productName", ol.getProductNameSnapshot());
+      row.put("sku", ol.getSkuSnapshot());
+      row.put("quantity", ol.getQuantity());
+      ls.add(row);
+    }
+    m.put("lines", ls);
+    m.put("createdAt", order.getPlacedAt().toString());
+    m.put(
+        "assignedDeliveryAt",
+        order.getAssignedDeliveryAt() != null ? order.getAssignedDeliveryAt().toString() : null);
+    m.put(
+        "deliveredAt",
+        order.getStatus() == OrderStatus.delivered && order.getUpdatedAt() != null
+            ? order.getUpdatedAt().toString()
+            : null);
+    String aid =
+        order.getShippingAddress() != null ? order.getShippingAddress().getId().toString() : null;
+    m.put("addressId", aid);
+    return m;
+  }
+
   @Transactional
   public Map<String, Object> patchStatusAdmin(String orderId, String status) {
     OrderEntity o =
@@ -490,6 +530,57 @@ public class OrderService {
     } catch (IllegalArgumentException ex) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid status");
     }
+    return applyOrderStatusTransition(o, next, "admin_status_patch", false);
+  }
+
+  /**
+   * Delivery role only: assigned partner may mark {@code shipped} → {@code delivered}. Response uses
+   * delivery-safe fields (no prices).
+   */
+  @Transactional
+  public Map<String, Object> patchStatusAsDeliveryPartner(
+      String orderId, String status, String deliveryAdminEmail) {
+    OrderEntity o =
+        orderRepository
+            .findById(Objects.requireNonNull(orderId, "orderId"))
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    OrderStatus next;
+    try {
+      next = normalizeAdminStatus(status);
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid status");
+    }
+    if (next != OrderStatus.delivered) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          "Delivery partners may only set status to delivered");
+    }
+    String assigned = o.getAssignedDeliveryAdminEmail();
+    if (assigned == null || assigned.isBlank()) {
+      throw new ApiException(
+          HttpStatus.FORBIDDEN, "FORBIDDEN", "Order is not assigned for delivery");
+    }
+    String deliveryKey =
+        deliveryAdminEmail == null ? "" : deliveryAdminEmail.trim().toLowerCase();
+    if (!assigned.trim().equalsIgnoreCase(deliveryKey)) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Order is not assigned to you");
+    }
+    if (o.getStatus() != OrderStatus.shipped) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "INVALID_STATUS_TRANSITION",
+          "Order must be shipped before marking delivered");
+    }
+    return applyOrderStatusTransition(o, OrderStatus.delivered, "delivery_partner_delivered", true);
+  }
+
+  private Map<String, Object> applyOrderStatusTransition(
+      OrderEntity o,
+      OrderStatus next,
+      String auditReason,
+      boolean deliveryPartnerResponse) {
     OrderStatus before = o.getStatus();
     if (!isOrderStatusTransitionAllowed(before, next)) {
       throw new ApiException(
@@ -503,7 +594,7 @@ public class OrderService {
     String actor = null;
     var auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth != null && auth.isAuthenticated()) actor = auth.getName();
-    writeStatusAudit(o, before, next, "admin", actor, "admin_status_patch");
+    writeStatusAudit(o, before, next, "admin", actor, auditReason);
     updateAssignedDeliveryAvailabilityOnStatusTransition(o, before, next);
     notificationService.notifyUser(
         o.getUser().getId(),
@@ -514,12 +605,15 @@ public class OrderService {
         o.getId(),
         Map.of("from", before.name(), "to", next.name()));
     notifyOrderStatusWhatsappBestEffort(o, next);
+    List<OrderLine> lines = orderLineRepository.findByOrder_Id(o.getId());
+    if (deliveryPartnerResponse) {
+      return Map.of("order", toDeliveryPartnerOrderMap(o, lines));
+    }
     UserProfile profile =
         userProfileRepository
             .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
             .orElse(null);
-    return Map.of(
-        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true));
+    return Map.of("order", toOrderMap(o, lines, null, profile, true));
   }
 
   private static OrderStatus normalizeAdminStatus(String status) {

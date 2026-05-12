@@ -6,6 +6,25 @@ import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 
 const MAX_RAW_FILE = 12 * 1024 * 1024
 const PAGE_SIZE = 5
+const IST_TIMEZONE = 'Asia/Kolkata'
+const istDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  timeZone: IST_TIMEZONE,
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: true,
+  timeZoneName: 'short',
+})
+
+function formatIstDateTime(value) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return istDateTimeFormatter.format(date)
+}
 
 function emptyForm() {
   return {
@@ -49,7 +68,6 @@ export function AdminCarsPage() {
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
     [allCars],
   )
-
   async function loadCars(reset = true) {
     setLoading(true)
     setError(null)
@@ -185,20 +203,11 @@ export function AdminCarsPage() {
       }
       if (createPhoto) body.image = createPhoto
       if (createBrandLogo) body.brandLogo = createBrandLogo
-      const createdCar = await adminService.createCar(body)
+      await adminService.createCar(body)
       setForm(emptyForm())
       setCreatePhoto('')
       setCreateBrandLogo('')
       await Promise.all([loadCars(true), refreshBrands()])
-      if (createdCar?.id) {
-        const matchesActiveBrand = !brand || String(createdCar.make ?? '').toLowerCase() === brand.toLowerCase()
-        if (matchesActiveBrand) {
-          setItems((prev) => {
-            const next = [createdCar, ...prev.filter((x) => x.id !== createdCar.id)]
-            return next.slice(0, PAGE_SIZE)
-          })
-        }
-      }
     } catch (e) {
       setError(getFetchErrorMessage(e))
     } finally {
@@ -295,8 +304,15 @@ export function AdminCarsPage() {
           <p className="mt-1 text-sm text-mist">Add and manage car catalog by brand with optional photos.</p>
         </div>
         <div className="w-full sm:w-64">
-          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Filter by brand</label>
-          <select value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass}>
+          <label htmlFor="admin-cars-brand-filter" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+            FILTER BY BRAND
+          </label>
+          <select
+            id="admin-cars-brand-filter"
+            value={brand}
+            onChange={(e) => setBrand(e.target.value)}
+            className={inputClass}
+          >
             <option value="">All brands</option>
             {brands.map((b) => (
               <option key={b} value={b}>
@@ -360,6 +376,8 @@ export function AdminCarsPage() {
                 <th className="px-4 py-3">Transmission</th>
                 <th className="px-4 py-3">Photo</th>
                 <th className="px-4 py-3">Brand logo</th>
+                <th className="px-4 py-3">Created (IST)</th>
+                <th className="px-4 py-3">Updated (IST)</th>
                 <th className="px-4 py-3 text-center">Live</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -367,11 +385,11 @@ export function AdminCarsPage() {
             <tbody className="divide-y divide-steel/40">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-mist">Loading cars…</td>
+                  <td colSpan={12} className="px-4 py-8 text-center text-mist">Loading cars…</td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-mist">No cars found.</td>
+                  <td colSpan={12} className="px-4 py-8 text-center text-mist">No cars found.</td>
                 </tr>
               ) : (
                 items.map((row) => (
@@ -391,6 +409,8 @@ export function AdminCarsPage() {
                     <td className="px-4 py-3">{row.transmission || '—'}</td>
                     <td className="px-4 py-3">{row.image ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-3">{row.brandLogo ? 'Yes' : 'No'}</td>
+                    <td className="px-4 py-3">{formatIstDateTime(row.createdAt)}</td>
+                    <td className="px-4 py-3">{formatIstDateTime(row.updatedAt)}</td>
                     <td className="px-4 py-3 text-center">{row.published ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">

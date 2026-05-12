@@ -14,7 +14,14 @@ import {
 import { useAuth } from '../context/useAuth.js'
 
 function navByRole(role) {
-  const base = [{ to: '/admin', end: true, label: 'Analytics', icon: LayoutDashboard }]
+  const base = [
+    {
+      to: '/admin',
+      end: true,
+      label: role === 'delivery' ? 'Dashboard' : 'Analytics',
+      icon: LayoutDashboard,
+    },
+  ]
   if (role === 'super_admin' || role === 'sales') {
     base.push({ to: '/admin/products', label: 'Products', icon: Package })
   }

@@ -5,7 +5,6 @@ import { BulkImportProductsPanel } from '../components/BulkImportProductsPanel.j
 import { ProductEditDrawer } from '../components/ProductEditDrawer.jsx'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
-import { getPartImage } from '../../data/partsCatalog.js'
 import { SafeImg } from '../../components/ui/SafeImg.jsx'
 import { useAuth } from '../../context/useAuth.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
@@ -396,9 +395,8 @@ export function AdminProductsPage() {
               </p>
             )}
             {items.map((p) => {
-              const img = p.image
-                ? { src: resolveApiAssetUrl(p.image) ?? p.image, alt: p.name }
-                : getPartImage(p.imageKey)
+              const hasImage = !!(p.image && String(p.image).trim())
+              const imgSrc = hasImage ? resolveApiAssetUrl(p.image) ?? p.image : ''
               return (
                 <article
                   key={p.id}
@@ -414,13 +412,19 @@ export function AdminProductsPage() {
                   className="admin-card flex cursor-pointer flex-col overflow-hidden text-left transition-colors hover:border-accent/35"
                 >
                   <div className="relative aspect-[4/3] bg-ink/40">
+                    {hasImage ? (
                     <SafeImg
-                      src={img.src}
+                      src={imgSrc}
                       alt=""
                       fw={480}
                       fh={360}
                       className="h-full w-full object-cover"
                     />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-steel/20 px-4 text-center">
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-mist">No image</span>
+                      </div>
+                    )}
                     <span
                       className={
                         p.deleted

@@ -17,6 +17,7 @@ import com.carnalysys.domain.PaymentTransactionEntity;
 import com.carnalysys.domain.Product;
 import com.carnalysys.domain.UserEntity;
 import com.carnalysys.repo.AddressRepository;
+import com.carnalysys.repo.AdminUserRepository;
 import com.carnalysys.repo.CartItemRepository;
 import com.carnalysys.repo.OrderLineRepository;
 import com.carnalysys.repo.OrderRepository;
@@ -56,6 +57,8 @@ class OrderServiceTest {
   @Mock private PaymentTransactionRepository paymentTransactionRepository;
   @Mock private UploadStorageService uploadStorageService;
   @Mock private NotificationService notificationService;
+  @Mock private AdminUserRepository adminUserRepository;
+  @Mock private WhatsappService whatsappService;
 
   @InjectMocks private OrderService orderService;
 
@@ -145,6 +148,102 @@ class OrderServiceTest {
 
     assertThat(o.getStatus()).isEqualTo(OrderStatus.confirmed);
     verify(orderRepository).save(o);
+  }
+
+  @Test
+  void patchStatusAsDeliveryPartnerMarksDeliveredWhenAssignedAndShipped() {
+    UserEntity u = new UserEntity();
+    u.setId(USER_ID);
+    OrderEntity o = new OrderEntity();
+    o.setId("ord_dp");
+    o.setUser(u);
+    o.setStatus(OrderStatus.shipped);
+    o.setAssignedDeliveryAdminEmail("driver@example.com");
+    o.setTotalInr(new BigDecimal("10.00"));
+    o.setPlacedAt(Instant.parse("2024-01-01T00:00:00Z"));
+    o.setUpdatedAt(Instant.parse("2024-01-01T00:00:00Z"));
+    when(orderRepository.findById("ord_dp")).thenReturn(Optional.of(o));
+    when(orderLineRepository.findByOrder_Id("ord_dp")).thenReturn(List.of());
+    when(userProfileRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+    Map<String, Object> result =
+        orderService.patchStatusAsDeliveryPartner("ord_dp", "delivered", "driver@example.com");
+
+    assertThat(o.getStatus()).isEqualTo(OrderStatus.delivered);
+    assertThat(result).containsKey("order");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> orderMap = (Map<String, Object>) result.get("order");
+    assertThat(orderMap.get("status")).isEqualTo("delivered");
+    assertThat(orderMap).doesNotContainKey("total");
+    verify(orderRepository).save(o);
+  }
+
+  @Test
+  void patchStatusAsDeliveryPartnerRejectsWrongAssignee() {
+    UserEntity u = new UserEntity();
+    u.setId(USER_ID);
+    OrderEntity o = new OrderEntity();
+    o.setId("ord_dp2");
+    o.setUser(u);
+    o.setStatus(OrderStatus.shipped);
+    o.setAssignedDeliveryAdminEmail("driver@example.com");
+    when(orderRepository.findById("ord_dp2")).thenReturn(Optional.of(o));
+
+    assertThatThrownBy(
+            () ->
+                orderService.patchStatusAsDeliveryPartner(
+                    "ord_dp2", "delivered", "someone.else@example.com"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.FORBIDDEN);
+              assertThat(ae.code()).isEqualTo("FORBIDDEN");
+            });
+  }
+
+  @Test
+  void patchStatusAsDeliveryPartnerRejectsNonDeliveredTargetStatus() {
+    UserEntity u = new UserEntity();
+    u.setId(USER_ID);
+    OrderEntity o = new OrderEntity();
+    o.setId("ord_dp3");
+    o.setUser(u);
+    o.setStatus(OrderStatus.shipped);
+    o.setAssignedDeliveryAdminEmail("driver@example.com");
+    when(orderRepository.findById("ord_dp3")).thenReturn(Optional.of(o));
+
+    assertThatThrownBy(
+            () -> orderService.patchStatusAsDeliveryPartner("ord_dp3", "processing", "driver@example.com"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(ae.code()).isEqualTo("VALIDATION_ERROR");
+            });
+  }
+
+  @Test
+  void patchStatusAsDeliveryPartnerRejectsWhenNotShipped() {
+    UserEntity u = new UserEntity();
+    u.setId(USER_ID);
+    OrderEntity o = new OrderEntity();
+    o.setId("ord_dp4");
+    o.setUser(u);
+    o.setStatus(OrderStatus.processing);
+    o.setAssignedDeliveryAdminEmail("driver@example.com");
+    when(orderRepository.findById("ord_dp4")).thenReturn(Optional.of(o));
+
+    assertThatThrownBy(
+            () -> orderService.patchStatusAsDeliveryPartner("ord_dp4", "delivered", "driver@example.com"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.CONFLICT);
+              assertThat(ae.code()).isEqualTo("INVALID_STATUS_TRANSITION");
+            });
   }
 
   @Test

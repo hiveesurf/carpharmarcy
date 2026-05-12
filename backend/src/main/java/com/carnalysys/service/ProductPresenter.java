@@ -7,6 +7,7 @@ import com.carnalysys.domain.ProductVehicleSpec;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +45,7 @@ public class ProductPresenter {
     m.put("totalStock", p.getStockQuantity());
     m.put("imageKey", p.getImageKey());
     if (p.getType() == ProductType.part) {
-      m.put("compatibleCars", fitmentLabels != null ? fitmentLabels : List.of());
+      m.put("compatibleCars", resolveCompatibleCarLabels(fitmentLabels, fitmentCarIds, carsById));
       m.put("compatibleCarIds", fitmentCarIds != null ? fitmentCarIds : List.of());
       m.put("compatibleCarDetails", toCarDetails(fitmentCarIds, carsById));
       JsonNode md = p.getMetadata();
@@ -78,6 +79,43 @@ public class ProductPresenter {
       m.put("description", p.getDescription());
     }
     return m;
+  }
+
+  /**
+   * Human-readable fitment lines for parts. Prefer persisted {@code product_fitment_labels}; when
+   * those are empty but {@code product_fitment_cars} has IDs, derive "Make Model" from {@code
+   * car_models} so storefront clients receive non-empty {@code compatibleCars}.
+   */
+  private static List<String> resolveCompatibleCarLabels(
+      List<String> fitmentLabels, List<String> fitmentCarIds, Map<String, CarModelEntity> carsById) {
+    if (fitmentLabels != null && !fitmentLabels.isEmpty()) {
+      return List.copyOf(fitmentLabels);
+    }
+    if (fitmentCarIds == null || fitmentCarIds.isEmpty() || carsById == null || carsById.isEmpty()) {
+      return List.of();
+    }
+    List<String> derived = new ArrayList<>();
+    for (String id : fitmentCarIds) {
+      if (id == null || id.isBlank()) {
+        continue;
+      }
+      CarModelEntity c = carsById.get(id.trim());
+      if (c == null) {
+        continue;
+      }
+      String label = formatCarFitmentDisplayName(c);
+      if (!label.isBlank()) {
+        derived.add(label);
+      }
+    }
+    return derived.isEmpty() ? List.of() : Collections.unmodifiableList(derived);
+  }
+
+  private static String formatCarFitmentDisplayName(CarModelEntity c) {
+    String make = c.getMake() != null ? c.getMake().trim() : "";
+    String model = c.getModel() != null ? c.getModel().trim() : "";
+    String joined = (make + " " + model).trim();
+    return joined.isEmpty() && c.getId() != null ? c.getId() : joined;
   }
 
   private List<Map<String, Object>> toCarDetails(

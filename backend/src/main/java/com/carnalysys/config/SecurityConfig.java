@@ -44,6 +44,8 @@ public class SecurityConfig {
             a ->
                 a.requestMatchers("/api/v1/admin/auth/login", "/api/v1/admin/auth/logout")
                     .permitAll()
+                    .requestMatchers("/api/v1/admin/delivery/me/availability")
+                    .hasRole("DELIVERY")
                     .requestMatchers("/api/v1/admin/employees/**")
                     .hasRole("SUPER_ADMIN")
                     .requestMatchers("/api/v1/admin/orders/*/assign-delivery")

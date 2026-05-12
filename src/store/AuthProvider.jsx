@@ -48,10 +48,33 @@ export function AuthProvider({ children }) {
   )
   const isAdmin = ['super_admin', 'sales', 'delivery', 'admin'].includes(sessionRole)
 
-  /** Keep localStorage user in sync when JWT proves admin but cached profile still says user. */
+  /**
+   * Align cached `user.role` with the access token when possible so employee roles (e.g. delivery)
+   * are not overwritten by the legacy fallback that upgraded unknown roles to super_admin.
+   */
   useEffect(() => {
     if (!isAdmin) return
-    setUser((u) => (u && !['super_admin', 'sales', 'delivery'].includes(String(u.role).toLowerCase()) ? { ...u, role: 'super_admin' } : u))
+    const payload = parseAccessTokenPayload(getAccessToken())
+    const jwtRoleRaw = typeof payload?.role === 'string' ? payload.role.trim().toLowerCase() : ''
+    const jwtMapped =
+      jwtRoleRaw === 'admin' || jwtRoleRaw === 'super_admin'
+        ? 'super_admin'
+        : jwtRoleRaw === 'sales' || jwtRoleRaw === 'delivery'
+          ? jwtRoleRaw
+          : ''
+    setUser((u) => {
+      if (!u) return u
+      if (jwtMapped && String(u.role).toLowerCase() !== jwtMapped) {
+        return { ...u, role: jwtMapped }
+      }
+      if (
+        !jwtMapped &&
+        !['super_admin', 'sales', 'delivery'].includes(String(u.role).toLowerCase())
+      ) {
+        return { ...u, role: 'super_admin' }
+      }
+      return u
+    })
   }, [isAdmin, tokenVersion])
 
   useEffect(() => {

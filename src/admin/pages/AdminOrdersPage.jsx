@@ -25,6 +25,7 @@ const ORDER_STATUS_FILTERS = [
   { key: 'refund', label: 'Refund' },
 ]
 const PAGE_SIZE = 5
+const PHONE_SEARCH_DEBOUNCE_MS = 350
 
 function formatInr(n) {
   if (n == null) return '—'
@@ -33,6 +34,12 @@ function formatInr(n) {
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(Number(n))
+}
+
+function normalizeOrderStatus(raw) {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'dispatched') return 'shipped'
+  return s
 }
 
 function statusStyle(s) {
@@ -63,21 +70,46 @@ export function AdminOrdersPage() {
   const [busyId, setBusyId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [phoneSearch, setPhoneSearch] = useState('')
+  const [phoneForApi, setPhoneForApi] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [nextPage, setNextPage] = useState(1)
+  const [settingOffline, setSettingOffline] = useState(false)
+  /** Delivery-only: filter completed deliveries by month / date range (UTC, matches order updatedAt). */
+  const [deliveryMonth, setDeliveryMonth] = useState('')
+  const [deliveryFrom, setDeliveryFrom] = useState('')
+  const [deliveryTo, setDeliveryTo] = useState('')
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setPhoneForApi(phoneSearch.trim())
+    }, PHONE_SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [phoneSearch])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       if (isDelivery) {
-        const list = await adminService.listDeliveryOrders()
+        const q = {}
+        const mo = deliveryMonth.trim()
+        const df = deliveryFrom.trim()
+        const dt = deliveryTo.trim()
+        if (mo) q.month = mo
+        if (df) q.from = df
+        if (dt) q.to = dt
+        const list = await adminService.listDeliveryOrders(q)
         setItems(list)
         setHasMore(false)
         setNextPage(1)
       } else {
-        const result = await adminService.listOrders({ page: 0, size: PAGE_SIZE })
+        const result = await adminService.listOrders({
+          page: 0,
+          size: PAGE_SIZE,
+          phone: phoneForApi || undefined,
+        })
         setItems(result.items || [])
         setHasMore(Boolean(result.hasMore))
         setNextPage(Number.isFinite(result.nextPage) ? result.nextPage : 1)
@@ -90,14 +122,18 @@ export function AdminOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [isDelivery])
+  }, [isDelivery, phoneForApi, deliveryMonth, deliveryFrom, deliveryTo])
 
   const loadMore = useCallback(async () => {
     if (isDelivery || loadingMore || !hasMore) return
     setLoadingMore(true)
     setError(null)
     try {
-      const result = await adminService.listOrders({ page: nextPage, size: PAGE_SIZE })
+      const result = await adminService.listOrders({
+        page: nextPage,
+        size: PAGE_SIZE,
+        phone: phoneForApi || undefined,
+      })
       setItems((prev) => [...prev, ...(result.items || [])])
       setHasMore(Boolean(result.hasMore))
       setNextPage(Number.isFinite(result.nextPage) ? result.nextPage : nextPage + 1)
@@ -106,7 +142,7 @@ export function AdminOrdersPage() {
     } finally {
       setLoadingMore(false)
     }
-  }, [isDelivery, loadingMore, hasMore, nextPage])
+  }, [isDelivery, loadingMore, hasMore, nextPage, phoneForApi])
 
   useEffect(() => {
     load()
@@ -153,6 +189,18 @@ export function AdminOrdersPage() {
   }, [users, normalizedSearch])
 
   const filteredItems = useMemo(() => {
+    const byUserSearch = (o) => {
+      if (selectedUserId) {
+        return String(o?.userId || '') === selectedUserId
+      }
+      if (!normalizedSearch) return true
+      const orderUserId = String(o?.userId || '').toLowerCase()
+      const orderUserName = String(o?.customerName || '').toLowerCase()
+      return orderUserId.includes(normalizedSearch) || orderUserName.includes(normalizedSearch)
+    }
+    if (isDelivery) {
+      return items.filter(byUserSearch)
+    }
     return items.filter((o) => {
       const status = String(o?.status || '').toLowerCase()
       if (statusFilter !== 'all') {
@@ -166,15 +214,19 @@ export function AdminOrdersPage() {
                 : status === statusFilter
         if (!statusOk) return false
       }
-      if (selectedUserId) {
-        return String(o?.userId || '') === selectedUserId
-      }
-      if (!normalizedSearch) return true
-      const orderUserId = String(o?.userId || '').toLowerCase()
-      const orderUserName = String(o?.customerName || '').toLowerCase()
-      return orderUserId.includes(normalizedSearch) || orderUserName.includes(normalizedSearch)
+      return byUserSearch(o)
     })
-  }, [items, statusFilter, normalizedSearch, selectedUserId])
+  }, [items, statusFilter, normalizedSearch, selectedUserId, isDelivery])
+
+  const hasPhoneSearch = !isDelivery && !!phoneForApi
+  const hasUserSearch = !!selectedUserId || !!normalizedSearch
+  const hasDeliveryDateFilter = isDelivery && !!(deliveryMonth.trim() || deliveryFrom.trim() || deliveryTo.trim())
+  const hasStatusFilter = !isDelivery && statusFilter !== 'all'
+  const activeFilterCount =
+    (hasPhoneSearch ? 1 : 0) +
+    (hasUserSearch ? 1 : 0) +
+    (hasStatusFilter ? 1 : 0) +
+    (hasDeliveryDateFilter ? 1 : 0)
 
   async function changeStatus(order, status) {
     if (status === order.status) return
@@ -191,6 +243,28 @@ export function AdminOrdersPage() {
     } finally {
       setBusyId(null)
     }
+  }
+
+  async function markDelivered(order) {
+    setBusyId(order.id)
+    try {
+      const updated = await adminService.patchOrderStatus(order.id, 'delivered')
+      if (updated) {
+        setItems((prev) => prev.map((item) => (item.id === order.id ? { ...item, ...updated } : item)))
+      } else {
+        await load()
+      }
+      window.dispatchEvent(new Event('carnalysys:delivery-stats-refresh'))
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  function deliveryAwaitingShip(status) {
+    const s = normalizeOrderStatus(status)
+    return s === 'placed' || s === 'confirmed' || s === 'processing'
   }
 
   async function assign(orderId, deliveryAdminEmail) {
@@ -210,28 +284,104 @@ export function AdminOrdersPage() {
     }
   }
 
+  async function setSelfOffline() {
+    if (!isDelivery) return
+    setSettingOffline(true)
+    try {
+      await adminService.setMyDeliveryAvailability('offline')
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setSettingOffline(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
-            Orders
+            {isDelivery ? 'My deliveries' : 'Orders'}
           </h1>
           <p className="text-sm text-mist">
-            Fulfillment queue — update status as orders progress.
+            {isDelivery
+              ? 'Orders assigned to you (placed through delivered). Date filters apply to last update time (UTC). Prices are hidden.'
+              : 'Fulfillment queue — update status as orders progress.'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => load()}
-          className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {isDelivery ? (
+            <button
+              type="button"
+              disabled={settingOffline}
+              onClick={() => void setSelfOffline()}
+              className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent disabled:opacity-60"
+            >
+              {settingOffline ? 'Setting…' : 'Set offline'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => load()}
+            className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {!loading && items.length > 0 ? (
-        <div className="space-y-3">
+      <div className="space-y-3">
+        {isDelivery ? (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Month (UTC)</label>
+              <input
+                type="month"
+                value={deliveryMonth}
+                onChange={(e) => setDeliveryMonth(e.target.value)}
+                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">From (UTC date)</label>
+              <input
+                type="date"
+                value={deliveryFrom}
+                onChange={(e) => setDeliveryFrom(e.target.value)}
+                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">To (UTC date)</label>
+              <input
+                type="date"
+                value={deliveryTo}
+                onChange={(e) => setDeliveryTo(e.target.value)}
+                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
+              />
+            </div>
+            <div className="flex flex-col justify-end gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-xl border border-accent/40 bg-accent/15 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/25"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeliveryMonth('')
+                  setDeliveryFrom('')
+                  setDeliveryTo('')
+                }}
+                className="rounded-xl border border-steel/80 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/50 hover:text-fog"
+              >
+                Clear dates
+              </button>
+            </div>
+          </div>
+        ) : (
           <div className="flex flex-wrap gap-2">
             {ORDER_STATUS_FILTERS.map((f) => {
               const active = statusFilter === f.key
@@ -252,76 +402,96 @@ export function AdminOrdersPage() {
               )
             })}
           </div>
+        )}
 
-          <div className="relative z-30 max-w-xl">
-            <input
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value)
-                setSelectedUserId('')
-              }}
-              placeholder="Search by user name or user ID"
-              className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog placeholder:text-mist/80 focus:border-accent/50 focus:outline-none"
-            />
-            {selectedUserId ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedUserId('')
-                  setSearchQuery('')
-                }}
-                className="mt-2 rounded-lg border border-steel/70 bg-ink/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/50 hover:text-fog"
-              >
-                Clear selected user
-              </button>
-            ) : null}
-            {suggestions.length > 0 ? (
-              <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-steel/70 bg-ink/95 shadow-xl pointer-events-auto">
-                <ul className="max-h-72 overflow-auto">
-                  {suggestions.map((u) => {
-                    const avatar = resolveApiAssetUrl(u?.avatarUrl)
-                    return (
-                      <li key={u.id}>
-                        <button
-                          type="button"
-                          onPointerDown={(e) => {
-                            // Use mouse down so selection applies before input blur.
-                            e.preventDefault()
-                            setSelectedUserId(String(u.id || ''))
-                            setSearchQuery(`${u.name || ''}`.trim() || String(u.id || ''))
-                          }}
-                          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate/40"
-                        >
-                          {avatar ? (
-                            <img
-                              src={avatar}
-                              alt=""
-                              className="h-8 w-8 rounded-full border border-steel/60 object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-steel/60 bg-steel/25 font-mono text-[10px] uppercase text-mist">
-                              {(String(u?.name || 'U').trim()[0] || 'U').toUpperCase()}
-                            </div>
-                          )}
-                          <span className="min-w-0">
-                            <span className="block truncate font-sans text-sm text-fog">
-                              {u?.name?.trim() ? u.name : 'User'}
-                            </span>
-                            <span className="block truncate font-mono text-[10px] text-mist">
-                              {u.id}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
+        <div className="grid gap-3 md:grid-cols-2">
+            {!isDelivery ? (
+              <div>
+                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+                  SEARCH BY PHONE
+                </label>
+                <input
+                  value={phoneSearch}
+                  onChange={(e) => setPhoneSearch(e.target.value)}
+                  placeholder="Search By Phone"
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog placeholder:text-mist/80 focus:border-accent/50 focus:outline-none"
+                />
               </div>
             ) : null}
-          </div>
+
+            <div className="relative z-30">
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+                SEARCH BY USER NAME OR USER ID
+              </label>
+              <input
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setSelectedUserId('')
+                }}
+                placeholder="Search By User Name Or User ID"
+                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog placeholder:text-mist/80 focus:border-accent/50 focus:outline-none"
+              />
+              {selectedUserId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUserId('')
+                    setSearchQuery('')
+                  }}
+                  className="mt-2 rounded-lg border border-steel/70 bg-ink/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/50 hover:text-fog"
+                >
+                  Clear selected user
+                </button>
+              ) : null}
+              {suggestions.length > 0 ? (
+                <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-steel/70 bg-ink/95 shadow-xl pointer-events-auto">
+                  <ul className="max-h-72 overflow-auto">
+                    {suggestions.map((u) => {
+                      const avatar = resolveApiAssetUrl(u?.avatarUrl)
+                      return (
+                        <li key={u.id}>
+                          <button
+                            type="button"
+                            onPointerDown={(e) => {
+                              // Use mouse down so selection applies before input blur.
+                              e.preventDefault()
+                              setSelectedUserId(String(u.id || ''))
+                              setSearchQuery(`${u.name || ''}`.trim() || String(u.id || ''))
+                            }}
+                            className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate/40"
+                          >
+                            {avatar ? (
+                              <img
+                                src={avatar}
+                                alt=""
+                                className="h-8 w-8 rounded-full border border-steel/60 object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-steel/60 bg-steel/25 font-mono text-[10px] uppercase text-mist">
+                                {(String(u?.name || 'U').trim()[0] || 'U').toUpperCase()}
+                              </div>
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate font-sans text-sm text-fog">
+                                {u?.name?.trim() ? u.name : 'User'}
+                              </span>
+                              <span className="block truncate font-mono text-[10px] text-mist">
+                                {u.id}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
         </div>
-      ) : null}
+      </div>
 
       {error && (
         <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog">
@@ -333,23 +503,32 @@ export function AdminOrdersPage() {
         <p className="font-mono text-xs text-mist">Loading orders…</p>
       ) : (
         <div className="space-y-4">
-          {items.length === 0 && (
+          {filteredItems.length === 0 ? (
             <p className="admin-card px-5 py-10 text-center text-mist">
-              No orders yet.
+              {items.length === 0 && activeFilterCount === 0
+                ? isDelivery
+                  ? 'No orders assigned to you yet.'
+                  : 'No orders yet.'
+                : activeFilterCount >= 2
+                  ? 'No orders found for the selected filters.'
+                  : hasPhoneSearch
+                    ? 'No orders found for this phone number.'
+                    : hasUserSearch
+                      ? 'No orders found for this user search.'
+                      : hasDeliveryDateFilter || hasStatusFilter
+                        ? 'No orders found for the selected filters.'
+                        : 'No orders yet.'}
             </p>
-          )}
-          {items.length > 0 && filteredItems.length === 0 && (
-            <p className="admin-card px-5 py-10 text-center text-mist">
-              No orders found for selected filters.
-            </p>
-          )}
-          {filteredItems.map((o) => (
+          ) : null}
+          {filteredItems.map((o) => {
+            const statusUi = normalizeOrderStatus(o.status)
+            return (
             <article
               key={o.id}
               className="admin-card overflow-hidden"
             >
               <div className="flex flex-col gap-4 border-b border-steel/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="font-mono text-xs text-mist">{o.id}</p>
                   <p className="mt-1 text-sm text-fog">
                     <span className="font-semibold">
@@ -376,30 +555,50 @@ export function AdminOrdersPage() {
                   <p className="mt-0.5 font-mono text-[10px] text-mist/90">
                     User id <span className="text-mist">{o.userId}</span>
                     <span className="mx-2 text-steel">·</span>
-                    {o.createdAt ? new Date(o.createdAt).toLocaleString() : '—'}
+                    Placed {o.createdAt ? new Date(o.createdAt).toLocaleString() : '—'}
+                    {isDelivery && o.deliveredAt ? (
+                      <>
+                        <span className="mx-2 text-steel">·</span>
+                        Completed {new Date(o.deliveredAt).toLocaleString()} <span className="text-mist">(UTC basis)</span>
+                      </>
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${statusStyle(o.status)}`}
+                    className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${statusStyle(statusUi)}`}
                   >
-                    {o.status}
+                    {statusUi}
                   </span>
-                  <span className="font-display text-lg font-bold tabular-nums text-fog">
-                    {formatInr(o.total)}
-                  </span>
-                  <select
-                    value={o.status}
-                    disabled={busyId === o.id}
-                    onChange={(e) => changeStatus(o, e.target.value)}
-                    className="rounded-lg border border-steel/80 bg-ink/40 px-2 py-1.5 font-mono text-[11px] text-fog focus:border-accent/50 focus:outline-none disabled:opacity-50"
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  {isDelivery && statusUi === 'shipped' ? (
+                    <button
+                      type="button"
+                      disabled={busyId === o.id}
+                      onClick={() => void markDelivered(o)}
+                      className="rounded-xl border border-accent/50 bg-accent/20 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busyId === o.id ? 'Updating…' : 'Mark Delivered'}
+                    </button>
+                  ) : null}
+                  {!isDelivery ? (
+                    <>
+                      <span className="font-display text-lg font-bold tabular-nums text-fog">
+                        {formatInr(o.total)}
+                      </span>
+                      <select
+                        value={o.status}
+                        disabled={busyId === o.id}
+                        onChange={(e) => changeStatus(o, e.target.value)}
+                        className="rounded-lg border border-steel/80 bg-ink/40 px-2 py-1.5 font-mono text-[11px] text-fog focus:border-accent/50 focus:outline-none disabled:opacity-50"
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : null}
                   {isSuperAdmin ? (
                     <select
                       value={o.assignedDeliveryAdminEmail || ''}
@@ -421,14 +620,23 @@ export function AdminOrdersPage() {
                   ) : null}
                 </div>
               </div>
+              {isDelivery && deliveryAwaitingShip(o.status) ? (
+                <p className="border-b border-steel/50 px-5 pb-3 text-xs leading-snug text-mist">
+                  Order must be shipped before delivery completion.
+                </p>
+              ) : null}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[480px] text-left text-sm">
                   <thead>
                     <tr className="font-mono text-[10px] uppercase tracking-wider text-mist">
                       <th className="px-5 py-2 font-medium">Product</th>
                       <th className="px-5 py-2 font-medium text-right">Qty</th>
-                      <th className="px-5 py-2 font-medium text-right">Unit</th>
-                      <th className="px-5 py-2 font-medium text-right">Line</th>
+                      {!isDelivery ? (
+                        <>
+                          <th className="px-5 py-2 font-medium text-right">Unit</th>
+                          <th className="px-5 py-2 font-medium text-right">Line</th>
+                        </>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-steel/40 text-mist">
@@ -441,17 +649,22 @@ export function AdminOrdersPage() {
                           ) : null}
                         </td>
                         <td className="px-5 py-2 text-right tabular-nums">{line.quantity}</td>
-                        <td className="px-5 py-2 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
-                        <td className="px-5 py-2 text-right tabular-nums text-fog">
-                          {formatInr(line.lineTotal)}
-                        </td>
+                        {!isDelivery ? (
+                          <>
+                            <td className="px-5 py-2 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
+                            <td className="px-5 py-2 text-right tabular-nums text-fog">
+                              {formatInr(line.lineTotal)}
+                            </td>
+                          </>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </article>
-          ))}
+            )
+          })}
           {!isDelivery && hasMore ? (
             <div className="pt-2 text-center">
               <button

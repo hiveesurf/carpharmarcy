@@ -216,17 +216,36 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, adminApiService.assignDelivery(id, email));
   }
 
+  @GetMapping("/delivery/me/summary")
+  public ApiEnvelope<Map<String, Object>> deliveryMeSummary(HttpServletRequest req) {
+    return ApiResponses.ok(req, adminApiService.deliveryPartnerSummaryForCurrent());
+  }
+
   @GetMapping("/delivery/orders")
-  public ApiEnvelope<Map<String, Object>> deliveryOrders(HttpServletRequest req) {
-    return ApiResponses.ok(req, Map.of("items", adminApiService.listDeliveryOrdersForCurrent()));
+  public ApiEnvelope<Map<String, Object>> deliveryOrders(
+      HttpServletRequest req,
+      @RequestParam(required = false) String from,
+      @RequestParam(required = false) String to,
+      @RequestParam(required = false) String month) {
+    return ApiResponses.ok(
+        req, Map.of("items", adminApiService.listDeliveryOrdersForCurrent(from, to, month)));
+  }
+
+  @PatchMapping("/delivery/me/availability")
+  public ApiEnvelope<Map<String, Object>> setMyDeliveryAvailability(
+      HttpServletRequest req, @RequestBody Map<String, Object> body) {
+    String value = body == null ? "" : String.valueOf(body.getOrDefault("availability", ""));
+    return ApiResponses.ok(req, adminApiService.setCurrentDeliveryAvailability(value));
   }
 
   @GetMapping("/users")
   public ApiEnvelope<Map<String, Object>> users(
       HttpServletRequest req,
       @RequestParam(name = "page", defaultValue = "0") Integer page,
-      @RequestParam(name = "size", defaultValue = "5") Integer size) {
-    return ApiResponses.ok(req, adminApiService.listUsersPage(page, size));
+      @RequestParam(name = "size", defaultValue = "5") Integer size,
+      @RequestParam(name = "phone", required = false) String phone,
+      @RequestParam(name = "role", required = false) String role) {
+    return ApiResponses.ok(req, adminApiService.listUsersPage(page, size, phone, role));
   }
 
   @GetMapping("/users/{id}")

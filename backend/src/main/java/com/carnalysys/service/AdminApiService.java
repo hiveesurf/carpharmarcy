@@ -36,6 +36,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -47,6 +49,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -61,6 +65,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AdminApiService {
+
+  private static final Set<String> USER_LIST_ROLE_FILTERS =
+      Set.of("user", "super_admin", "sales", "delivery");
+
+  /** Assigned orders visible in delivery partner "My deliveries" (excludes draft, cancelled, refunded). */
+  private static final List<OrderStatus> DELIVERY_PARTNER_LIST_STATUSES =
+      List.of(
+          OrderStatus.placed,
+          OrderStatus.confirmed,
+          OrderStatus.processing,
+          OrderStatus.shipped,
+          OrderStatus.delivered);
 
   private final AdminUserRepository adminUserRepository;
   private final PasswordEncoder passwordEncoder;
@@ -230,12 +246,44 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listUsersPage(int page, int size) {
+  public Map<String, Object> listUsersPage(int page, int size, String phone, String role) {
     Pageable pageable =
         PageRequest.of(Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("id").descending());
-    Page<UserEntity> result = userRepository.findAll(pageable);
+    String phoneFilter = phone == null || phone.isBlank() ? null : phone.trim();
+    String roleFilter = normalizeUserListRoleParam(role);
+    Specification<UserEntity> spec = userListSpecification(phoneFilter, roleFilter);
+    Page<UserEntity> result = userRepository.findAll(spec, pageable);
     List<Map<String, Object>> items = result.getContent().stream().map(this::toUserMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
+  }
+
+  private static String normalizeUserListRoleParam(String role) {
+    if (role == null || role.isBlank()) {
+      return null;
+    }
+    String r = role.trim().toLowerCase();
+    return USER_LIST_ROLE_FILTERS.contains(r) ? r : null;
+  }
+
+  private static String escapeLikePattern(String raw) {
+    return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+  }
+
+  private static Specification<UserEntity> userListSpecification(String phone, String role) {
+    return (root, query, cb) -> {
+      List<Predicate> predicates = new ArrayList<>();
+      if (phone != null) {
+        String escaped = escapeLikePattern(phone).toLowerCase();
+        predicates.add(cb.like(cb.lower(root.get("phoneE164")), "%" + escaped + "%", '\\'));
+      }
+      if (role != null) {
+        predicates.add(cb.equal(root.get("role"), role));
+      }
+      if (predicates.isEmpty()) {
+        return cb.conjunction();
+      }
+      return cb.and(predicates.toArray(Predicate[]::new));
+    };
   }
 
   @Transactional(readOnly = true)
@@ -814,9 +862,6 @@ public class AdminApiService {
     int safeSize = Math.max(1, Math.min(50, size));
     if (phone != null && !phone.isBlank()) {
       var rows = orderService.listAllAdminByPhonePage(phone, safePage, safeSize);
-      if (((List<?>) rows.getOrDefault("items", List.of())).isEmpty()) {
-        throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "No orders for this phone");
-      }
       return rows;
     }
     var pageResult = orderRepository.findAllByOrderByPlacedAtDesc(PageRequest.of(safePage, safeSize));
@@ -837,6 +882,10 @@ public class AdminApiService {
 
   @Transactional
   public Map<String, Object> patchOrderStatus(String id, String status) {
+    AdminUser admin = resolveCurrentAdminUser();
+    if ("delivery".equalsIgnoreCase(admin.getRole())) {
+      return orderService.patchStatusAsDeliveryPartner(id, status, admin.getEmail());
+    }
     return orderService.patchStatusAdmin(id, status);
   }
 
@@ -881,11 +930,83 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public List<Map<String, Object>> listDeliveryOrdersForCurrent() {
-    String email = currentAdminEmailOrNull();
-    if (email == null) return List.of();
-    return orderService.listAllAdmin().stream()
-        .filter(o -> email.equalsIgnoreCase(String.valueOf(o.getOrDefault("assignedDeliveryAdminEmail", ""))))
+  public Map<String, Object> deliveryPartnerSummaryForCurrent() {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    long deliveriesDone =
+        orderRepository.countByAssignedDeliveryAdminEmailIgnoreCaseAndStatus(
+            admin.getEmail(), OrderStatus.delivered);
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("deliveriesDone", deliveriesDone);
+    m.put("lastLoginAt", admin.getLastLoginAt() != null ? admin.getLastLoginAt().toString() : null);
+    m.put("lastLogoutAt", admin.getLastLogoutAt() != null ? admin.getLastLogoutAt().toString() : null);
+    return m;
+  }
+
+  private AdminUser resolveCurrentDeliveryAdminUser() {
+    AdminUser admin = resolveCurrentAdminUser();
+    if (!"delivery".equalsIgnoreCase(admin.getRole())) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Delivery role required");
+    }
+    return admin;
+  }
+
+  private static final class DeliveryDateWindow {
+    private final Instant startInclusive;
+    private final Instant endExclusive;
+
+    DeliveryDateWindow(Instant startInclusive, Instant endExclusive) {
+      this.startInclusive = startInclusive;
+      this.endExclusive = endExclusive;
+    }
+
+    boolean matchesUpdatedAt(Instant updatedAt) {
+      if (updatedAt == null) {
+        return false;
+      }
+      if (startInclusive != null && updatedAt.isBefore(startInclusive)) {
+        return false;
+      }
+      if (endExclusive != null && !updatedAt.isBefore(endExclusive)) {
+        return false;
+      }
+      return true;
+    }
+  }
+
+  private static DeliveryDateWindow parseDeliveryDateWindow(String from, String to, String month) {
+    String mo = month != null ? month.trim() : "";
+    if (!mo.isBlank()) {
+      YearMonth ym = YearMonth.parse(mo);
+      Instant start = ym.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+      Instant end = ym.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+      return new DeliveryDateWindow(start, end);
+    }
+    String fs = from != null ? from.trim() : "";
+    String ts = to != null ? to.trim() : "";
+    Instant startInc = null;
+    Instant endExc = null;
+    if (!fs.isBlank()) {
+      startInc = LocalDate.parse(fs).atStartOfDay(ZoneOffset.UTC).toInstant();
+    }
+    if (!ts.isBlank()) {
+      endExc = LocalDate.parse(ts).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    }
+    return new DeliveryDateWindow(startInc, endExc);
+  }
+
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> listDeliveryOrdersForCurrent(String from, String to, String month) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    DeliveryDateWindow window = parseDeliveryDateWindow(from, to, month);
+    List<OrderEntity> orders =
+        orderRepository.findByAssignedDeliveryAdminEmailIgnoreCaseAndStatusInOrderByUpdatedAtDesc(
+            admin.getEmail(), DELIVERY_PARTNER_LIST_STATUSES);
+    return orders.stream()
+        .filter(o -> window.matchesUpdatedAt(o.getUpdatedAt()))
+        .map(
+            o ->
+                orderService.toDeliveryPartnerOrderMap(
+                    o, orderLineRepository.findByOrder_Id(o.getId())))
         .toList();
   }
 
@@ -968,6 +1089,21 @@ public class AdminApiService {
     return Map.of("employee", toEmployeeMap(a));
   }
 
+  @Transactional
+  public Map<String, Object> setCurrentDeliveryAvailability(String availability) {
+    String value = availability == null ? "" : availability.trim().toLowerCase();
+    if (!"offline".equals(value)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be offline");
+    }
+    AdminUser current = resolveCurrentAdminUser();
+    if (!"delivery".equalsIgnoreCase(current.getRole())) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Only delivery users can update this status");
+    }
+    current.setAvailabilityStatus(value);
+    adminUserRepository.save(current);
+    return Map.of("employee", toEmployeeMap(current));
+  }
+
   @Transactional(readOnly = true)
   public List<Map<String, Object>> productAuditHistory(String productId) {
     return productChangeAuditRepository.findByProductIdOrderByCreatedAtDesc(productId).stream()
@@ -1013,15 +1149,22 @@ public class AdminApiService {
         PageRequest.of(
             Math.max(0, page),
             Math.max(1, Math.min(50, size)),
-            Sort.by(Sort.Order.asc("make"), Sort.Order.asc("model"), Sort.Order.desc("modelYear")));
+            Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
     Page<CarModelEntity> result;
-    if (!b.isBlank()) {
-      result = carModelRepository.findByMakeIgnoreCase(b, pageable);
+    if (onlyPublished) {
+      if (!b.isBlank()) {
+        result = carModelRepository.findByPublishedTrueAndDeletedAtIsNullAndMakeIgnoreCase(b, pageable);
+      } else {
+        result = carModelRepository.findByPublishedTrueAndDeletedAtIsNull(pageable);
+      }
     } else {
-      result = carModelRepository.findAll(pageable);
+      if (!b.isBlank()) {
+        result = carModelRepository.findByDeletedAtIsNullAndMakeIgnoreCase(b, pageable);
+      } else {
+        result = carModelRepository.findByDeletedAtIsNull(pageable);
+      }
     }
-    List<Map<String, Object>> items =
-      result.getContent().stream().filter(c -> !onlyPublished || c.isPublished()).map(this::toCarMap).toList();
+    List<Map<String, Object>> items = result.getContent().stream().map(this::toCarMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
   }
 
@@ -1094,6 +1237,8 @@ public class AdminApiService {
     m.put("published", c.isPublished());
     m.put("deleted", c.getDeletedAt() != null);
     m.put("deletedAt", c.getDeletedAt() != null ? c.getDeletedAt().toString() : null);
+    m.put("createdAt", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
+    m.put("updatedAt", c.getUpdatedAt() != null ? c.getUpdatedAt().toString() : null);
     return m;
   }
 
@@ -1153,6 +1298,31 @@ public class AdminApiService {
       return digits.substring(digits.length() - 10);
     }
     return digits;
+  }
+
+  private AdminUser resolveCurrentAdminUser() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null || !auth.isAuthenticated()) {
+      throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Not authenticated");
+    }
+    String principal = String.valueOf(auth.getName()).trim();
+    if (principal.contains("@")) {
+      return adminUserRepository
+          .findByEmailIgnoreCase(principal)
+          .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Admin user not found"));
+    }
+    try {
+      UUID userId = UUID.fromString(principal);
+      UserEntity user =
+          userRepository
+              .findById(userId)
+              .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "User not found"));
+      return adminUserRepository
+          .findByPhoneE164(user.getPhoneE164())
+          .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Admin user not found"));
+    } catch (IllegalArgumentException ex) {
+      throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid principal");
+    }
   }
 
   private Map<String, Object> pagedResponse(

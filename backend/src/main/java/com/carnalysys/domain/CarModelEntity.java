@@ -3,6 +3,8 @@ package com.carnalysys.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
@@ -41,10 +43,10 @@ public class CarModelEntity {
   private boolean published = true;
 
   @Column(name = "created_at", nullable = false, updatable = false)
-  private Instant createdAt = Instant.now();
+  private Instant createdAt;
 
-  @Column(name = "updated_at", nullable = false)
-  private Instant updatedAt = Instant.now();
+  @Column(name = "updated_at")
+  private Instant updatedAt;
 
   @Column(name = "deleted_at")
   private Instant deletedAt;
@@ -159,5 +161,17 @@ public class CarModelEntity {
 
   public void setDeletedAt(Instant deletedAt) {
     this.deletedAt = deletedAt;
+  }
+
+  @PrePersist
+  public void onCreate() {
+    if (this.createdAt == null) {
+      this.createdAt = Instant.now();
+    }
+  }
+
+  @PreUpdate
+  public void onUpdate() {
+    this.updatedAt = Instant.now();
   }
 }

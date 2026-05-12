@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShoppingBag, IndianRupee, TrendingUp } from 'lucide-react'
+import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { useAuth } from '../../context/useAuth.js'
@@ -118,26 +118,45 @@ function RevenuePurchasesChart({ rows }) {
   )
 }
 
+function formatTs(iso) {
+  if (iso == null || String(iso).trim() === '') return '—'
+  const d = new Date(String(iso))
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString()
+}
+
 export function AdminOverviewPage() {
   const { sessionRole } = useAuth()
   const isSales = sessionRole === 'sales'
+  const isDelivery = sessionRole === 'delivery'
   const [data, setData] = useState(null)
+  const [deliverySummary, setDeliverySummary] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancel = false
     ;(async () => {
+      setLoading(true)
+      setError(null)
       try {
-        const d = await adminService.dashboard()
-        if (!cancel) {
-          setData(d)
-          setError(null)
+        if (isDelivery) {
+          const d = await adminService.deliveryPartnerSummary()
+          if (!cancel) {
+            setDeliverySummary(d && typeof d === 'object' ? d : {})
+            setData(null)
+          }
+        } else {
+          const d = await adminService.dashboard()
+          if (!cancel) {
+            setData(d)
+            setDeliverySummary(null)
+          }
         }
       } catch (e) {
         if (!cancel) {
           setError(getFetchErrorMessage(e))
           setData(null)
+          setDeliverySummary(null)
         }
       } finally {
         if (!cancel) setLoading(false)
@@ -146,7 +165,78 @@ export function AdminOverviewPage() {
     return () => {
       cancel = true
     }
-  }, [])
+  }, [isDelivery])
+
+  useEffect(() => {
+    if (!isDelivery) return
+    const refresh = () => {
+      void (async () => {
+        try {
+          const d = await adminService.deliveryPartnerSummary()
+          setDeliverySummary(d && typeof d === 'object' ? d : {})
+        } catch {
+          /* keep prior summary; orders page will show API errors */
+        }
+      })()
+    }
+    window.addEventListener('carnalysys:delivery-stats-refresh', refresh)
+    return () => window.removeEventListener('carnalysys:delivery-stats-refresh', refresh)
+  }, [isDelivery])
+
+  if (isDelivery) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
+            Dashboard
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-mist">
+            Completed deliveries assigned to you and your last session times.
+          </p>
+        </div>
+
+        {loading && <p className="font-mono text-xs text-mist">Loading dashboard…</p>}
+        {error && (
+          <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog">{error}</div>
+        )}
+
+        {deliverySummary && !error && (
+          <ul className="grid gap-4 sm:grid-cols-3">
+            <li className="admin-card relative overflow-hidden p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">Deliveries done</p>
+                  <p className="mt-2 font-display text-3xl font-bold tabular-nums text-fog">
+                    {deliverySummary.deliveriesDone ?? 0}
+                  </p>
+                  <p className="mt-2 text-xs text-mist">Status delivered · assigned to you</p>
+                </div>
+                <Package className="h-8 w-8 shrink-0 text-accent opacity-90" strokeWidth={1.5} />
+              </div>
+            </li>
+            <li className="admin-card relative overflow-hidden p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">Last login</p>
+                  <p className="mt-2 font-sans text-sm leading-snug text-fog">{formatTs(deliverySummary.lastLoginAt)}</p>
+                </div>
+                <Clock className="h-8 w-8 shrink-0 text-hud opacity-90" strokeWidth={1.5} />
+              </div>
+            </li>
+            <li className="admin-card relative overflow-hidden p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">Last logout</p>
+                  <p className="mt-2 font-sans text-sm leading-snug text-fog">{formatTs(deliverySummary.lastLogoutAt)}</p>
+                </div>
+                <Clock className="h-8 w-8 shrink-0 text-mist opacity-90" strokeWidth={1.5} />
+              </div>
+            </li>
+          </ul>
+        )}
+      </div>
+    )
+  }
 
   const top = Array.isArray(data?.topProducts) ? data.topProducts : []
   const chartRows = normalizeChartRows(data?.revenueVsPurchases)

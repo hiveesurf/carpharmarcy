@@ -1,8 +1,10 @@
 package com.carnalysys.repo;
 
 import com.carnalysys.domain.OrderEntity;
+import com.carnalysys.domain.OrderStatus;
 import com.carnalysys.domain.PaymentStatus;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +34,12 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
       PaymentStatus paymentStatus, Instant placedAt);
 
   List<OrderEntity> findByAssignedDeliveryAdminEmailOrderByPlacedAtDesc(String assignedDeliveryAdminEmail);
+
+  List<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseAndStatusInOrderByUpdatedAtDesc(
+      String assignedDeliveryAdminEmail, Collection<OrderStatus> statuses);
+
+  long countByAssignedDeliveryAdminEmailIgnoreCaseAndStatus(
+      String assignedDeliveryAdminEmail, OrderStatus status);
 
   Page<OrderEntity> findAllByOrderByPlacedAtDesc(Pageable pageable);
 
