@@ -12,7 +12,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -78,7 +77,7 @@ public class AdminV1Controller {
               .build();
       resp.addHeader(HttpHeaders.SET_COOKIE, clear.toString());
     }
-    SecurityContextHolder.clearContext();
+    org.springframework.security.core.context.SecurityContextHolder.clearContext();
     return ApiResponses.ok(req, Map.of("ok", true));
   }
 
@@ -293,7 +292,7 @@ public class AdminV1Controller {
       @RequestParam(name = "cursor", required = false) String cursor,
       @RequestParam(name = "limit", defaultValue = "20") int limit,
       @RequestParam(name = "unreadOnly", defaultValue = "false") boolean unreadOnly) {
-    String adminEmail = currentAdminEmail();
+    String recipientId = resolveAdminNotificationRecipientId();
     java.time.Instant c = null;
     if (cursor != null && !cursor.isBlank()) {
       try {
@@ -306,17 +305,21 @@ public class AdminV1Controller {
       return ApiResponses.ok(
           req,
           notificationService.list(
-              NotificationService.RECIPIENT_ADMIN, adminEmail, c, limit, unreadOnly));
+              NotificationService.RECIPIENT_ADMIN, recipientId, c, limit, unreadOnly));
     } catch (RuntimeException ex) {
-      return ApiResponses.ok(
-          req, Map.of("items", java.util.List.of(), "nextCursor", null, "unreadCount", 0, "hasMore", false));
+      Map<String, Object> empty = new java.util.LinkedHashMap<>();
+      empty.put("items", java.util.List.of());
+      empty.put("nextCursor", null);
+      empty.put("unreadCount", 0L);
+      empty.put("hasMore", false);
+      return ApiResponses.ok(req, empty);
     }
   }
 
   @PostMapping("/notifications/read")
   public ApiEnvelope<Map<String, Object>> markRead(
       HttpServletRequest req, @RequestBody(required = false) Map<String, Object> body) {
-    String adminEmail = currentAdminEmail();
+    String recipientId = resolveAdminNotificationRecipientId();
     boolean all = body != null && Boolean.TRUE.equals(body.get("all"));
     @SuppressWarnings("unchecked")
     java.util.List<String> ids =
@@ -325,7 +328,7 @@ public class AdminV1Controller {
             : java.util.List.of();
     int changed =
         notificationService.markRead(
-            NotificationService.RECIPIENT_ADMIN, adminEmail, ids, all);
+            NotificationService.RECIPIENT_ADMIN, recipientId, ids, all);
     return ApiResponses.ok(req, Map.of("updated", changed));
   }
 
@@ -334,7 +337,7 @@ public class AdminV1Controller {
       HttpServletRequest req,
       @RequestBody(required = false) Map<String, Object> body,
       @RequestHeader(name = "User-Agent", required = false) String userAgent) {
-    String adminEmail = currentAdminEmail();
+    String recipientId = resolveAdminNotificationRecipientId();
     Map<String, Object> b = body != null ? body : Map.of();
     String endpoint = b.get("endpoint") != null ? String.valueOf(b.get("endpoint")) : null;
     @SuppressWarnings("unchecked")
@@ -345,26 +348,23 @@ public class AdminV1Controller {
     String p256dh = keys.get("p256dh") != null ? String.valueOf(keys.get("p256dh")) : null;
     String auth = keys.get("auth") != null ? String.valueOf(keys.get("auth")) : null;
     notificationService.upsertPushSubscription(
-        NotificationService.RECIPIENT_ADMIN, adminEmail, endpoint, p256dh, auth, userAgent);
+        NotificationService.RECIPIENT_ADMIN, recipientId, endpoint, p256dh, auth, userAgent);
     return ApiResponses.ok(req, Map.of("subscribed", true));
   }
 
   @PostMapping("/notifications/push/unsubscribe")
   public ApiEnvelope<Map<String, Object>> unsubscribePush(
       HttpServletRequest req, @RequestBody(required = false) Map<String, Object> body) {
-    String adminEmail = currentAdminEmail();
+    String recipientId = resolveAdminNotificationRecipientId();
     String endpoint = body != null && body.get("endpoint") != null ? String.valueOf(body.get("endpoint")) : null;
     long removed =
         notificationService.removePushSubscription(
-            NotificationService.RECIPIENT_ADMIN, adminEmail, endpoint);
+            NotificationService.RECIPIENT_ADMIN, recipientId, endpoint);
     return ApiResponses.ok(req, Map.of("removed", removed));
   }
 
-  private static String currentAdminEmail() {
-    var auth = SecurityContextHolder.getContext().getAuthentication();
-    if (auth == null || !auth.isAuthenticated()) {
-      return "";
-    }
-    return String.valueOf(auth.getName()).trim().toLowerCase();
+  /** Same {@code admin_users.email} key as {@link NotificationService#notifyAdminEmail} recipients. */
+  private String resolveAdminNotificationRecipientId() {
+    return adminApiService.currentAdminNotificationRecipientId();
   }
 }

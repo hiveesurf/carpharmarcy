@@ -14,6 +14,8 @@ import com.carnalysys.web.support.GuestRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -158,8 +160,12 @@ public class AuthV1Controller {
           notificationService.list(
               NotificationService.RECIPIENT_USER, uid.toString(), c, limit, unreadOnly));
     } catch (RuntimeException ex) {
-      return ApiResponses.ok(
-          req, Map.of("items", java.util.List.of(), "nextCursor", null, "unreadCount", 0, "hasMore", false));
+      Map<String, Object> empty = new LinkedHashMap<>();
+      empty.put("items", List.of());
+      empty.put("nextCursor", null);
+      empty.put("unreadCount", 0L);
+      empty.put("hasMore", false);
+      return ApiResponses.ok(req, empty);
     }
   }
 

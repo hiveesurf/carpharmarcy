@@ -66,6 +66,7 @@ export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { sessionRole } = useAuth()
   const role = ['super_admin', 'sales', 'delivery'].includes(sessionRole) ? sessionRole : 'super_admin'
+  const sidebarSectionLabel = role === 'delivery' ? 'DELIVERY' : 'ADMIN'
 
   return (
     <div className="pb-16 pt-4 text-fog md:pt-6">
@@ -76,7 +77,7 @@ export function AdminLayout() {
             onClick={() => setMobileOpen((o) => !o)}
             className="admin-card flex w-full items-center justify-between px-4 py-3 font-display text-sm font-bold uppercase tracking-wide text-fog"
           >
-            Admin menu
+            {role === 'delivery' ? 'Delivery menu' : 'Admin menu'}
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           {mobileOpen && (
@@ -89,7 +90,7 @@ export function AdminLayout() {
         <aside className="hidden w-52 shrink-0 md:block lg:w-56">
           <div className="admin-card sticky top-20 p-3">
             <p className="px-2 pb-2 font-sans text-[10px] font-semibold uppercase tracking-[0.2em] text-mist">
-              Admin
+              {sidebarSectionLabel}
             </p>
             <NavItems role={role} />
             <Link

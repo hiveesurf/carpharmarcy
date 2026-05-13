@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react'
 import { AuthModals } from '../auth/AuthModals'
 import { useAuth } from '../../context/useAuth'
 import { useNotifications } from '../../context/useNotifications.js'
+import { formatPublicIdentityLabel } from '../../lib/identityDisplayLabel.js'
 
 /**
  * Admin area only: no storefront navbar/hero/footer — full dashboard after login.
@@ -11,7 +12,10 @@ import { useNotifications } from '../../context/useNotifications.js'
 export function AdminAppShell({ children }) {
   const navigate = useNavigate()
   const { user, signOut, sessionRole } = useAuth()
-  const { unreadCount, panelOpen, setPanelOpen, items, markAllRead, enablePushNotifications } = useNotifications()
+  const headerBrand =
+    sessionRole === 'delivery' ? 'carpharmacy delivery' : 'carpharmacy admin'
+  const { unreadCount, panelOpen, setPanelOpen, items, markAllRead, markReadByIds, enablePushNotifications } =
+    useNotifications()
 
   return (
     <div className="relative min-h-svh bg-ink text-fog antialiased">
@@ -20,7 +24,7 @@ export function AdminAppShell({ children }) {
           to="/admin"
           className="font-display text-sm font-bold uppercase tracking-wider text-fog transition-colors hover:text-accent"
         >
-          carpharmacy admin
+          {headerBrand}
         </Link>
         <div className="flex items-center gap-3 sm:gap-4">
           <div className="relative">
@@ -60,20 +64,50 @@ export function AdminAppShell({ children }) {
                   {items.length === 0 ? (
                     <p className="text-xs text-mist">No notifications yet.</p>
                   ) : (
-                    items.map((n) => (
-                      <article key={n.id} className="rounded-lg border border-steel/60 bg-slate/30 p-2.5">
-                        <p className="text-xs font-semibold text-fog">{n.title}</p>
-                        <p className="mt-1 text-xs text-mist">{n.body}</p>
-                      </article>
-                    ))
+                    items.map((n) => {
+                      const orderLinked =
+                        n?.sourceType === 'order' ||
+                        n?.topic === 'admin_new_order' ||
+                        n?.topic === 'admin_delivery_completed' ||
+                        n?.topic === 'admin_alerts'
+                      return (
+                        <article key={n.id} className="rounded-lg border border-steel/60 bg-slate/30 p-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="min-w-0 flex-1 text-xs font-semibold text-fog">{n.title}</p>
+                            <button
+                              type="button"
+                              onClick={() => void markReadByIds([n.id])}
+                              className="shrink-0 font-sans text-[10px] font-semibold uppercase tracking-wide text-mist transition-colors hover:text-accent"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                          <p className="mt-1 text-xs text-mist">{n.body}</p>
+                          {orderLinked && n?.sourceId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPanelOpen(false)
+                                navigate('/admin/orders')
+                              }}
+                              className="mt-2 font-sans text-[11px] font-semibold text-accent hover:underline"
+                            >
+                              Open orders
+                            </button>
+                          ) : null}
+                        </article>
+                      )
+                    })
                   )}
                 </div>
               </div>
             ) : null}
           </div>
-          {user && (
-            <span className="hidden max-w-[240px] truncate font-sans text-xs text-mist md:inline">{user.name} · {sessionRole}</span>
-          )}
+          {user || sessionRole === 'super_admin' ? (
+            <span className="hidden max-w-[240px] truncate font-sans text-xs text-mist md:inline">
+              {formatPublicIdentityLabel(user, sessionRole)}
+            </span>
+          ) : null}
           <Link
             to="/"
             className="font-sans text-xs font-semibold uppercase tracking-wide text-accent underline-offset-2 hover:underline"

@@ -12,6 +12,8 @@ import com.carnalysys.api.ApiException;
 import com.carnalysys.domain.AdminUser;
 import com.carnalysys.domain.OrderEntity;
 import com.carnalysys.domain.OrderStatus;
+import com.carnalysys.domain.UserEntity;
+import com.carnalysys.domain.UserProfile;
 import com.carnalysys.repo.AdminUserRepository;
 import com.carnalysys.repo.CarModelRepository;
 import com.carnalysys.repo.CategoryRepository;
@@ -32,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -241,5 +244,39 @@ class AdminApiServiceTest {
     assertThat(result).containsKey("order");
     verify(orderService).patchStatusAdmin("ord_1", "shipped");
     verify(orderService, never()).patchStatusAsDeliveryPartner(any(), any(), any());
+  }
+
+  @Test
+  void patchOrderStatusUsesAdminPathWhenPrincipalIsUuidAndProfileEmailMatchesAdmin() {
+    UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+    SecurityContextHolder.getContext()
+        .setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                uid.toString(),
+                "n/a",
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
+
+    UserEntity user = new UserEntity();
+    user.setId(uid);
+    user.setPhoneE164("9999999999");
+    user.setRole("super_admin");
+    when(userRepository.findById(uid)).thenReturn(Optional.of(user));
+    when(adminUserRepository.findByPhoneE164("9999999999")).thenReturn(Optional.empty());
+
+    UserProfile profile = new UserProfile();
+    profile.setEmail("Ops@corp.test");
+    when(userProfileRepository.findById(uid)).thenReturn(Optional.of(profile));
+
+    AdminUser admin = new AdminUser();
+    admin.setEmail("ops@corp.test");
+    admin.setRole("super_admin");
+    when(adminUserRepository.findByEmailIgnoreCase("Ops@corp.test")).thenReturn(Optional.of(admin));
+    when(orderService.patchStatusAdmin("ord_1", "confirmed"))
+        .thenReturn(Map.of("order", Map.of("id", "ord_1")));
+
+    Map<String, Object> result = adminApiService.patchOrderStatus("ord_1", "confirmed");
+
+    assertThat(result).containsKey("order");
+    verify(orderService).patchStatusAdmin("ord_1", "confirmed");
   }
 }

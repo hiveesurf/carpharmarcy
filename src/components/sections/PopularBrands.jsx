@@ -1,20 +1,114 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
 import { staggerContainer, staggerItem, viewportOnce } from '../../lib/motion'
 import { publicUrl } from '../../lib/publicUrl'
+import { apiV1Base } from '../../api/client.js'
+import { fetchVehicleBrands } from '../../services/fitmentService.js'
 
-const brands = [
-  { name: 'Hyundai', logo: publicUrl('brands/hyundai.svg'), tone: 'from-slate to-graphite' },
-  { name: 'Volkswagen', logo: publicUrl('brands/volkswagen.svg'), tone: 'from-graphite/80 to-steel/60' },
-  { name: 'Bosch', logo: publicUrl('brands/bosch.svg'), tone: 'from-hud/15 to-hud/5' },
-  { name: 'NGK', logo: publicUrl('brands/ngk.svg'), tone: 'from-slate to-steel/70' },
-  { name: 'Mahindra', logo: publicUrl('brands/mahindra.svg'), tone: 'from-graphite/70 to-slate' },
-  { name: 'Honda', logo: publicUrl('brands/honda.svg'), tone: 'from-steel/50 to-slate' },
-  { name: 'Maruti Suzuki', logo: publicUrl('brands/suzuki.svg'), tone: 'from-slate to-graphite/60' },
-  { name: 'Tata', logo: publicUrl('brands/tata.svg'), tone: 'from-hud/10 to-slate' },
+/** Rotating gradient tones — same palette family as the original static section */
+const TONE_CLASSES = [
+  'from-slate to-graphite',
+  'from-graphite/80 to-steel/60',
+  'from-hud/15 to-hud/5',
+  'from-slate to-steel/70',
+  'from-graphite/70 to-slate',
+  'from-steel/50 to-slate',
+  'from-slate to-graphite/60',
+  'from-hud/10 to-slate',
 ]
 
+function initialsFromName(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  const one = parts[0] ?? '?'
+  return one.length >= 2 ? one.slice(0, 2).toUpperCase() : one.toUpperCase()
+}
+
+function BrandTile({ id, name, tone }) {
+  const [logoOk, setLogoOk] = useState(true)
+  const logoSrc = publicUrl(`brands/${id}.svg`)
+
+  return (
+    <motion.li variants={staggerItem} className="list-none">
+      <Link
+        to={`/catalog?brandId=${encodeURIComponent(id)}`}
+        className={`ad-store-card flex min-h-[7.5rem] flex-col items-center justify-center gap-3 rounded-xl border border-steel/70 bg-gradient-to-br px-3 py-4 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(255,107,53,0.2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-[8.5rem] sm:py-5 ${tone}`}
+        aria-label={`Shop parts for ${name}`}
+      >
+        <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center sm:min-h-[3rem]">
+          {logoOk ? (
+            <img
+              src={logoSrc}
+              alt=""
+              width={140}
+              height={56}
+              loading="lazy"
+              decoding="async"
+              className="h-10 w-auto max-h-12 max-w-[min(140px,88%)] object-contain object-center sm:h-12 sm:max-h-14"
+              onError={() => setLogoOk(false)}
+            />
+          ) : (
+            <span className="flex h-11 min-w-[2.75rem] items-center justify-center rounded-xl border border-steel/60 bg-ink/40 px-2 font-display text-sm font-extrabold uppercase tracking-wide text-fog sm:h-14 sm:min-w-[3.5rem] sm:text-base">
+              {initialsFromName(name)}
+            </span>
+          )}
+        </div>
+        <span className="text-center font-display text-[11px] font-extrabold uppercase leading-tight tracking-wide text-fog sm:text-xs">
+          {name}
+        </span>
+      </Link>
+    </motion.li>
+  )
+}
+
+function BrandsSkeleton() {
+  return (
+    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4">
+      {Array.from({ length: 8 }, (_, i) => (
+        <li key={i} className="list-none">
+          <div className="flex min-h-[7.5rem] animate-pulse flex-col items-center justify-center gap-3 rounded-xl border border-steel/50 bg-steel/20 px-3 py-4 sm:min-h-[8.5rem] sm:py-5">
+            <div className="h-10 w-24 rounded-lg bg-steel/40 sm:h-12" />
+            <div className="h-3 w-20 rounded bg-steel/40" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function PopularBrands() {
+  const [brands, setBrands] = useState([])
+  const [loading, setLoading] = useState(() => Boolean(apiV1Base()))
+
+  useEffect(() => {
+    if (!apiV1Base()) {
+      setLoading(false)
+      setBrands([])
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    fetchVehicleBrands()
+      .then((rows) => {
+        if (!cancelled) setBrands(Array.isArray(rows) ? rows : [])
+      })
+      .catch(() => {
+        if (!cancelled) setBrands([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!loading && brands.length === 0) return null
+
   return (
     <section className="relative overflow-hidden border-b border-steel/60 bg-slate px-4 py-16 sm:px-6 md:py-20 lg:px-10">
       <img
@@ -42,40 +136,35 @@ export function PopularBrands() {
               Genuine and OES lines we stock and ship — same brands your service manual names.
             </p>
           </div>
-          <span className="inline-flex items-center gap-1 self-start rounded-xl border border-steel/80 bg-ink px-5 py-2.5 font-sans text-sm font-semibold text-hud transition-colors hover:border-accent/40 hover:text-accent">
+          <Link
+            to="/catalog"
+            className="inline-flex items-center gap-1 self-start rounded-xl border border-steel/80 bg-ink px-5 py-2.5 font-sans text-sm font-semibold text-hud transition-colors hover:border-accent/40 hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
             View brands
             <ChevronRight className="h-4 w-4" strokeWidth={2} aria-hidden />
-          </span>
+          </Link>
         </motion.header>
 
-        <motion.ul
-          className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4"
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewportOnce}
-        >
-          {brands.map(({ name, logo, tone }) => (
-            <motion.li key={name} variants={staggerItem}>
-              <div
-                className={`ad-store-card flex min-h-[7.5rem] flex-col items-center justify-center gap-3 rounded-xl border border-steel/70 bg-gradient-to-br px-3 py-4 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(255,107,53,0.2)] sm:min-h-[8.5rem] sm:py-5 ${tone}`}
-              >
-                <img
-                  src={logo}
-                  alt=""
-                  width={140}
-                  height={56}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-10 w-auto max-h-12 max-w-[min(140px,88%)] object-contain object-center sm:h-12 sm:max-h-14"
-                />
-                <span className="text-center font-display text-[11px] font-extrabold uppercase leading-tight tracking-wide text-fog sm:text-xs">
-                  {name}
-                </span>
-              </div>
-            </motion.li>
-          ))}
-        </motion.ul>
+        {loading ? (
+          <BrandsSkeleton />
+        ) : (
+          <motion.ul
+            className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4"
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+          >
+            {brands.map((b, index) => (
+              <BrandTile
+                key={b.id}
+                id={b.id}
+                name={b.name}
+                tone={TONE_CLASSES[index % TONE_CLASSES.length]}
+              />
+            ))}
+          </motion.ul>
+        )}
       </div>
     </section>
   )

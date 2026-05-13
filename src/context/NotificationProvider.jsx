@@ -4,6 +4,7 @@ import { NotificationContext } from './notification-context.js'
 import { useAuth } from './useAuth.js'
 import * as notificationService from '../services/notificationService.js'
 import { requestPushSubscription } from '../lib/pushNotifications.js'
+import { subscribeAccessTokenChanged } from '../lib/authTokenEvents.js'
 
 const POLL_MS = 20_000
 
@@ -20,7 +21,6 @@ export function NotificationProvider({ children }) {
   const load = useCallback(async () => {
     if (!authHydrated) return
     if (!user && !isAdminRoute) return
-    if (document.visibilityState === 'hidden') return
     setLoading(true)
     setError(null)
     try {
@@ -28,7 +28,14 @@ export function NotificationProvider({ children }) {
         ? await notificationService.listAdminNotifications({ limit: 20 })
         : await notificationService.listUserNotifications({ limit: 20 })
       setItems(Array.isArray(data.items) ? data.items : [])
-      setUnreadCount(typeof data.unreadCount === 'number' ? data.unreadCount : 0)
+      const rawUnread = data.unreadCount
+      const n =
+        typeof rawUnread === 'number'
+          ? rawUnread
+          : typeof rawUnread === 'string'
+            ? Number(rawUnread)
+            : NaN
+      setUnreadCount(Number.isFinite(n) ? n : 0)
     } catch (e) {
       setError(e?.message || 'Could not load notifications')
     } finally {
@@ -41,14 +48,27 @@ export function NotificationProvider({ children }) {
   }, [load])
 
   useEffect(() => {
+    return subscribeAccessTokenChanged(() => {
+      if (!authHydrated) return
+      if (!user && !isAdminRoute) return
+      void load()
+    })
+  }, [authHydrated, isAdminRoute, load, user])
+
+  useEffect(() => {
     const id = window.setInterval(() => {
       void load()
     }, POLL_MS)
     const onFocus = () => void load()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
     window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.clearInterval(id)
       window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [load])
 
@@ -64,6 +84,23 @@ export function NotificationProvider({ children }) {
       setError(e?.message || 'Could not mark notifications as read')
     }
   }, [isAdminRoute, load])
+
+  const markReadByIds = useCallback(
+    async (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) return
+      try {
+        if (isAdminRoute) {
+          await notificationService.markAdminNotificationsRead({ ids })
+        } else {
+          await notificationService.markUserNotificationsRead({ ids })
+        }
+        await load()
+      } catch (e) {
+        setError(e?.message || 'Could not update notifications')
+      }
+    },
+    [isAdminRoute, load],
+  )
 
   const subscribePush = useCallback(async (subscription) => {
     if (!subscription) return
@@ -90,11 +127,24 @@ export function NotificationProvider({ children }) {
       setPanelOpen,
       refreshNotifications: load,
       markAllRead,
+      markReadByIds,
       subscribePush,
       enablePushNotifications,
       isAdminRoute,
     }),
-    [items, unreadCount, loading, error, panelOpen, load, markAllRead, subscribePush, enablePushNotifications, isAdminRoute],
+    [
+      items,
+      unreadCount,
+      loading,
+      error,
+      panelOpen,
+      load,
+      markAllRead,
+      markReadByIds,
+      subscribePush,
+      enablePushNotifications,
+      isAdminRoute,
+    ],
   )
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>

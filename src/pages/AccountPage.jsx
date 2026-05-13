@@ -14,6 +14,7 @@ import {
 } from '../services/userService.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
 import { resolveApiAssetUrl } from '../lib/resolveApiAssetUrl.js'
+import { formatPublicIdentityInitials } from '../lib/identityDisplayLabel.js'
 import { Button } from '../components/ui/Button'
 
 const emptyAddr = () => ({
@@ -28,7 +29,7 @@ const emptyAddr = () => ({
 })
 
 export function AccountPage() {
-  const { user, authHydrated, openAuth, signOut, patchUser } = useAuth()
+  const { user, authHydrated, openAuth, signOut, patchUser, sessionRole } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [name, setName] = useState('')
@@ -180,7 +181,7 @@ export function AccountPage() {
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center font-display text-2xl text-mist">
-                      {user.name?.slice(0, 1)?.toUpperCase() ?? '?'}
+                      {formatPublicIdentityInitials(user, sessionRole)}
                     </div>
                   )}
                 </div>

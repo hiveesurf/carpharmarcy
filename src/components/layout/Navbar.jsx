@@ -23,6 +23,10 @@ import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { searchProductsQuick } from '../../services/productService.js'
 import { loadWishlist } from '../../services/wishlistService.js'
 import { useNotifications } from '../../context/useNotifications.js'
+import {
+  formatPublicIdentityInitials,
+  formatPublicIdentityLabel,
+} from '../../lib/identityDisplayLabel.js'
 
 const BRAND_TEXT_ANIM_PRESETS = [
   {
@@ -67,16 +71,6 @@ const BRAND_TEXT_ANIM_PRESETS = [
   },
 ]
 
-function navDisplayInitials(name) {
-  if (!name || typeof name !== 'string') return '?'
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase()
-  }
-  const one = parts[0] || '?'
-  return one.length >= 2 ? one.slice(0, 2).toUpperCase() : (one[0] ? one[0].toUpperCase() : '?')
-}
-
 export function Navbar() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -86,6 +80,9 @@ export function Navbar() {
   const { user, isAdmin, signOut, openAuth, authHydrated, sessionRole } = useAuth()
   const adminButtonLabel =
     sessionRole === 'delivery' || user?.role === 'delivery' ? 'Delivery' : 'Admin'
+  const identityLabel = user ? formatPublicIdentityLabel(user, sessionRole) : ''
+  const identityInitials = user ? formatPublicIdentityInitials(user, sessionRole) : '?'
+
   const {
     items: notifications,
     unreadCount,
@@ -94,6 +91,7 @@ export function Navbar() {
     markAllRead,
     enablePushNotifications,
     loading: notificationsLoading,
+    markReadByIds,
   } = useNotifications()
   const [avatarBroken, setAvatarBroken] = useState(false)
   const resolvedNavAvatar =
@@ -256,7 +254,16 @@ export function Navbar() {
                           n?.topic === 'payment'
                         return (
                           <article key={n.id} className="rounded-lg border border-steel/60 bg-slate/40 p-2.5">
-                            <p className="text-xs font-semibold text-fog">{n.title}</p>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="min-w-0 flex-1 text-xs font-semibold text-fog">{n.title}</p>
+                              <button
+                                type="button"
+                                onClick={() => void markReadByIds([n.id])}
+                                className="shrink-0 font-sans text-[10px] font-semibold uppercase tracking-wide text-mist transition-colors hover:text-accent"
+                              >
+                                Clear
+                              </button>
+                            </div>
                             <p className="mt-1 text-xs text-mist">{n.body}</p>
                             {canOpenOrder && n?.sourceId ? (
                               <button
@@ -346,10 +353,10 @@ export function Navbar() {
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-steel/70 bg-steel/25 font-sans text-[10px] font-bold uppercase tracking-tight text-fog"
                       aria-hidden
                     >
-                      {navDisplayInitials(user.name)}
+                      {identityInitials}
                     </span>
                   )}
-                  <span className="min-w-0 truncate">{user.name}</span>
+                  <span className="min-w-0 truncate">{identityLabel}</span>
                   <ChevronDown
                     className={`h-4 w-4 shrink-0 text-mist transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`}
                     strokeWidth={2}
@@ -461,10 +468,10 @@ export function Navbar() {
                         />
                       ) : (
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-steel/70 bg-steel/25 text-xs font-bold uppercase text-fog">
-                          {navDisplayInitials(user.name)}
+                          {identityInitials}
                         </span>
                       )}
-                      <span className="truncate font-semibold text-fog">{user.name}</span>
+                      <span className="truncate font-semibold text-fog">{identityLabel}</span>
                     </div>
                     <button type="button" className="shrink-0 text-accent" onClick={() => { signOut(); setOpen(false) }}>
                       Sign out

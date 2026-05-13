@@ -41,35 +41,48 @@ public class AdminSessionAuthenticationFilter extends OncePerRequestFilter {
         return;
       }
       var existing = SecurityContextHolder.getContext().getAuthentication();
+
+      /*
+       * Prefer a valid admin_session cookie over JWT identity. Otherwise a storefront Bearer token
+       * (subject = user UUID) wins first in JwtAuthenticationFilter and this filter used to skip
+       * cookie resolution whenever ROLE_ADMIN was present — leaving getName() as UUID and breaking
+       * services that resolve AdminUser by email or phone only.
+       */
+      var cookie = WebUtils.getCookie(request, AdminSessionService.COOKIE_NAME);
+      String token = cookie != null ? cookie.getValue() : null;
+      var sessionEmailOpt = adminSessionService.resolveSessionEmail(token);
+      if (sessionEmailOpt.isPresent()) {
+        String emailKey = sessionEmailOpt.get().trim().toLowerCase();
+        var adminFromSession = adminUserRepository.findByEmailIgnoreCase(emailKey);
+        if (adminFromSession.isPresent()) {
+          String principalEmail = adminFromSession.get().getEmail().trim().toLowerCase();
+          SecurityContextHolder.getContext()
+              .setAuthentication(
+                  new UsernamePasswordAuthenticationToken(
+                      principalEmail, null, authoritiesFor(principalEmail)));
+          filterChain.doFilter(request, response);
+          return;
+        }
+      }
+
       if (existing != null
           && existing.isAuthenticated()
           && hasAdminAuthority(existing.getAuthorities())) {
         filterChain.doFilter(request, response);
         return;
       }
-      var cookie = WebUtils.getCookie(request, AdminSessionService.COOKIE_NAME);
-      String token = cookie != null ? cookie.getValue() : null;
-      var sessionEmail = adminSessionService.resolveSessionEmail(token);
-      if (sessionEmail.isEmpty()) {
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType("application/json;charset=UTF-8");
-        var meta = ApiMeta.of(null);
-        objectMapper.writeValue(
-            response.getOutputStream(),
-            ApiErrorEnvelope.of(
-                "FORBIDDEN",
-                "Admin access: sign in with phone (admin role) or admin email login",
-                null,
-                meta));
-        return;
-      }
-      SecurityContextHolder.getContext()
-          .setAuthentication(
-              new UsernamePasswordAuthenticationToken(
-                  sessionEmail.get(),
-                  null,
-                  authoritiesFor(sessionEmail.get())));
-      filterChain.doFilter(request, response);
+
+      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+      response.setContentType("application/json;charset=UTF-8");
+      var meta = ApiMeta.of(null);
+      objectMapper.writeValue(
+          response.getOutputStream(),
+          ApiErrorEnvelope.of(
+              "FORBIDDEN",
+              "Admin access: sign in with phone (admin role) or admin email login",
+              null,
+              meta));
+      return;
     } finally {
       SecurityContextHolder.clearContext();
     }

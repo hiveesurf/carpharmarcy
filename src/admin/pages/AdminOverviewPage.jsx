@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock } from 'lucide-react'
+import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { useAuth } from '../../context/useAuth.js'
@@ -124,6 +124,17 @@ function formatTs(iso) {
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString()
 }
 
+/** Backend availability_status → dashboard label */
+function availabilityLabel(raw) {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+  if (s === 'free') return 'Online'
+  if (s === 'busy') return 'Busy'
+  if (s === 'offline') return 'Offline'
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'
+}
+
 export function AdminOverviewPage() {
   const { sessionRole } = useAuth()
   const isSales = sessionRole === 'sales'
@@ -132,6 +143,7 @@ export function AdminOverviewPage() {
   const [deliverySummary, setDeliverySummary] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [availabilitySaving, setAvailabilitySaving] = useState(null)
 
   useEffect(() => {
     let cancel = false
@@ -183,6 +195,22 @@ export function AdminOverviewPage() {
     return () => window.removeEventListener('carnalysys:delivery-stats-refresh', refresh)
   }, [isDelivery])
 
+  async function setDeliveryAvailability(next) {
+    if (!isDelivery || (next !== 'free' && next !== 'offline')) return
+    setAvailabilitySaving(next)
+    setError(null)
+    try {
+      await adminService.setMyDeliveryAvailability(next)
+      const d = await adminService.deliveryPartnerSummary()
+      setDeliverySummary(d && typeof d === 'object' ? d : {})
+      window.dispatchEvent(new Event('carnalysys:delivery-stats-refresh'))
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setAvailabilitySaving(null)
+    }
+  }
+
   if (isDelivery) {
     return (
       <div className="space-y-8">
@@ -201,7 +229,55 @@ export function AdminOverviewPage() {
         )}
 
         {deliverySummary && !error && (
-          <ul className="grid gap-4 sm:grid-cols-3">
+          <>
+            <section className="admin-card relative overflow-hidden p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <Radio className="mt-0.5 h-8 w-8 shrink-0 text-accent opacity-90" strokeWidth={1.5} />
+                  <div>
+                    <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">My availability</h2>
+                    <p className="mt-2 font-display text-2xl font-bold tracking-tight text-fog">
+                      Current status:{' '}
+                      <span className="text-accent">
+                        {availabilityLabel(deliverySummary.availability)}
+                      </span>
+                    </p>
+                    <p className="mt-1 max-w-xl text-xs text-mist">
+                      Online and Offline are set by you. Busy is set when an order is assigned to you.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <button
+                    type="button"
+                    disabled={
+                      availabilitySaving !== null ||
+                      String(deliverySummary.availability ?? '')
+                        .trim()
+                        .toLowerCase() === 'free'
+                    }
+                    onClick={() => void setDeliveryAvailability('free')}
+                    className="rounded-xl bg-accent px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {availabilitySaving === 'free' ? 'Updating…' : 'Set online'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      availabilitySaving !== null ||
+                      String(deliverySummary.availability ?? '')
+                        .trim()
+                        .toLowerCase() === 'offline'
+                    }
+                    onClick={() => void setDeliveryAvailability('offline')}
+                    className="rounded-xl border border-steel/80 px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {availabilitySaving === 'offline' ? 'Updating…' : 'Set offline'}
+                  </button>
+                </div>
+              </div>
+            </section>
+            <ul className="grid gap-4 sm:grid-cols-3">
             <li className="admin-card relative overflow-hidden p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -233,6 +309,7 @@ export function AdminOverviewPage() {
               </div>
             </li>
           </ul>
+          </>
         )}
       </div>
     )

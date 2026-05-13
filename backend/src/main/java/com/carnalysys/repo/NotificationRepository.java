@@ -13,17 +13,52 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationRepository extends JpaRepository<NotificationEntity, UUID> {
 
+  boolean existsByRecipientTypeAndRecipientIdAndTopicAndSourceId(
+      String recipientType, String recipientId, String topic, String sourceId);
+
+  /**
+   * Split queries avoid binding a nullable {@code Instant} cursor into {@code (? is null or ...)}
+   * branches, which PostgreSQL rejects ("could not determine data type of parameter").
+   */
   @Query(
       "select n from NotificationEntity n "
           + "where n.recipientType = :recipientType and n.recipientId = :recipientId "
-          + "and (:cursor is null or n.createdAt < :cursor) "
-          + "and (:unreadOnly = false or n.readAt is null) "
           + "order by n.createdAt desc")
-  List<NotificationEntity> listForRecipient(
+  List<NotificationEntity> listForRecipientNoCursorIncludingRead(
+      @Param("recipientType") String recipientType,
+      @Param("recipientId") String recipientId,
+      Pageable pageable);
+
+  @Query(
+      "select n from NotificationEntity n "
+          + "where n.recipientType = :recipientType and n.recipientId = :recipientId "
+          + "and n.readAt is null "
+          + "order by n.createdAt desc")
+  List<NotificationEntity> listForRecipientNoCursorUnreadOnly(
+      @Param("recipientType") String recipientType,
+      @Param("recipientId") String recipientId,
+      Pageable pageable);
+
+  @Query(
+      "select n from NotificationEntity n "
+          + "where n.recipientType = :recipientType and n.recipientId = :recipientId "
+          + "and n.createdAt < :cursor "
+          + "order by n.createdAt desc")
+  List<NotificationEntity> listForRecipientBeforeCursorIncludingRead(
       @Param("recipientType") String recipientType,
       @Param("recipientId") String recipientId,
       @Param("cursor") Instant cursor,
-      @Param("unreadOnly") boolean unreadOnly,
+      Pageable pageable);
+
+  @Query(
+      "select n from NotificationEntity n "
+          + "where n.recipientType = :recipientType and n.recipientId = :recipientId "
+          + "and n.createdAt < :cursor and n.readAt is null "
+          + "order by n.createdAt desc")
+  List<NotificationEntity> listForRecipientBeforeCursorUnreadOnly(
+      @Param("recipientType") String recipientType,
+      @Param("recipientId") String recipientId,
+      @Param("cursor") Instant cursor,
       Pageable pageable);
 
   long countByRecipientTypeAndRecipientIdAndReadAtIsNull(String recipientType, String recipientId);

@@ -221,7 +221,6 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     if (description.trim()) body.description = description.trim()
 
     const payload = body
-    console.log("Edit Product update payload:", payload)
 
     try {
       const updated = await adminService.updateProduct(p.id, payload)
@@ -441,7 +440,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
                 </ul>
               </div>
 
-              <div>
+              <div className="space-y-3">
                 <VehicleMultiSelect
                   cars={cars}
                   selectedCarIds={selectedCarIds}
@@ -449,6 +448,24 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
                   label="Compatible vehicles (select multiple)"
                   emptyText="No DB cars."
                 />
+                {Array.isArray(p.fitmentLabelValues) && p.fitmentLabelValues.length > 0 ? (
+                  <div className="rounded-xl border border-steel/50 bg-ink/20 p-3">
+                    <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">
+                      Imported / label fitment (Excel or free-text)
+                    </p>
+                    <p className="mb-2 text-[11px] leading-snug text-mist">
+                      These values are stored as fitment labels. They are separate from catalog car links above.
+                      Saving this form without editing the list below leaves them unchanged.
+                    </p>
+                    <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-[11px] text-fog">
+                      {p.fitmentLabelValues.map((line, idx) => (
+                        <li key={`${idx}-${String(line)}`} className="rounded border border-steel/40 bg-slate/30 px-2 py-1">
+                          {String(line)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Description</label>

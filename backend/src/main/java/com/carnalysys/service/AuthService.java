@@ -91,6 +91,18 @@ public class AuthService {
     ch.setExpiresAt(Instant.now().plusSeconds(appProperties.otp().ttlSeconds()));
     otpChallengeRepository.save(ch);
 
+    UserEntity existingUser = userRepository.findByPhoneE164(phoneKey).orElse(null);
+    if (existingUser != null) {
+      notificationService.notifyUser(
+          existingUser.getId(),
+          "auth_security",
+          "OTP sent",
+          "A login OTP was requested for your account.",
+          "auth",
+          ch.getId().toString(),
+          Map.of("phone", phoneKey));
+    }
+
     if (whatsappEnabled) {
       try {
         whatsappService.sendOtp(phoneKey, otp);
@@ -111,17 +123,6 @@ public class AuthService {
     if (!whatsappEnabled || !whatsappSent || isLocalDevProfile()) {
       // LOCAL DEV ONLY - remove before production
       data.put("demoOtp", otp);
-    }
-    UserEntity existingUser = userRepository.findByPhoneE164(phoneKey).orElse(null);
-    if (existingUser != null) {
-      notificationService.notifyUser(
-          existingUser.getId(),
-          "auth_security",
-          "OTP sent",
-          "A login OTP was requested for your account.",
-          "auth",
-          ch.getId().toString(),
-          Map.of("phone", phoneKey));
     }
     return data;
   }

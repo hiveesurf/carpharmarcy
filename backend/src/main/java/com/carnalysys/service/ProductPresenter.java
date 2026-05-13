@@ -219,6 +219,13 @@ public class ProductPresenter {
         putMetadataConvenienceField(m, md, "supplierName");
       }
     }
+    if (p.getType() == ProductType.part) {
+      m.put(
+          "fitmentLabelValues",
+          fitmentLabels != null && !fitmentLabels.isEmpty()
+              ? List.copyOf(fitmentLabels)
+              : List.of());
+    }
     return m;
   }
 

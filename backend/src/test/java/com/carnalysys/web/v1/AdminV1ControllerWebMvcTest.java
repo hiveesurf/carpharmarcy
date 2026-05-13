@@ -375,13 +375,15 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   void deliveryMeSummaryOk() throws Exception {
     Map<String, Object> summary = new LinkedHashMap<>();
     summary.put("deliveriesDone", 3L);
+    summary.put("availability", "busy");
     summary.put("lastLoginAt", "2026-05-01T10:00:00Z");
     summary.put("lastLogoutAt", null);
     when(adminApiService.deliveryPartnerSummaryForCurrent()).thenReturn(summary);
     mockMvc
         .perform(get("/api/v1/admin/delivery/me/summary").with(asAdmin()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.deliveriesDone").value(3));
+        .andExpect(jsonPath("$.data.deliveriesDone").value(3))
+        .andExpect(jsonPath("$.data.availability").value("busy"));
   }
 
   @Test

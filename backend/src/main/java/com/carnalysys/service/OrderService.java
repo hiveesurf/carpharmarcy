@@ -217,6 +217,7 @@ public class OrderService {
         "order",
         order.getId(),
         Map.of("status", order.getStatus().name()));
+    notificationService.notifySuperAdminAndSalesNewOrder(order.getId());
     notifyOrderStatusWhatsappBestEffort(order, order.getStatus());
 
     UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
@@ -604,6 +605,9 @@ public class OrderService {
         "order",
         o.getId(),
         Map.of("from", before.name(), "to", next.name()));
+    if (next == OrderStatus.delivered) {
+      notificationService.notifySuperAdminAndSalesDeliveryCompleted(o.getId());
+    }
     notifyOrderStatusWhatsappBestEffort(o, next);
     List<OrderLine> lines = orderLineRepository.findByOrder_Id(o.getId());
     if (deliveryPartnerResponse) {

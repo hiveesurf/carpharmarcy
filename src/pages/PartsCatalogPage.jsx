@@ -25,11 +25,11 @@ const PAGE_SIZE = 5
 const SEARCH_DEBOUNCE_MS = 350
 
 export function PartsCatalogPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState(() => searchParams.get('q') ?? '')
   const [debouncedQuery, setDebouncedQuery] = useState(() => (searchParams.get('q') ?? '').trim())
   const [selectedCarId, setSelectedCarId] = useState(() => searchParams.get('carId') ?? '')
-  const [brandId, setBrandId] = useState('')
+  const [brandId, setBrandId] = useState(() => searchParams.get('brandId') ?? '')
   const [modelId, setModelId] = useState('')
   const [year, setYear] = useState('')
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
@@ -38,9 +38,11 @@ export function PartsCatalogPage() {
   useEffect(() => {
     const q = searchParams.get('q')
     const cid = searchParams.get('carId') ?? ''
+    const bid = searchParams.get('brandId') ?? ''
     // eslint-disable-next-line react-hooks/set-state-in-effect -- route params hydrate local filters
     if (q != null) setQuery(q)
     setSelectedCarId(cid)
+    setBrandId(bid)
   }, [searchParams])
 
   const useApi = Boolean(apiV1Base())
@@ -291,7 +293,14 @@ export function PartsCatalogPage() {
     setQuery('')
     setDebouncedQuery('')
     setSelectedCarId('')
-  }, [])
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('brandId')
+      next.delete('carId')
+      next.delete('q')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const removeChip = useCallback((chipKey) => {
     if (chipKey.startsWith('category:')) {
@@ -302,6 +311,11 @@ export function PartsCatalogPage() {
       setBrandId('')
       setModelId('')
       setYear('')
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('brandId')
+        return next
+      }, { replace: true })
     }
     if (chipKey === 'model') {
       setModelId('')
@@ -312,7 +326,7 @@ export function PartsCatalogPage() {
       setQuery('')
       setDebouncedQuery('')
     }
-  }, [])
+  }, [setSearchParams])
 
   const noModelAvailable = Boolean(brandId) && modelOptions.length === 0 && !apiLoading
   const noYearAvailable = Boolean(modelId) && yearOptions.length === 0 && !apiLoading

@@ -46,10 +46,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
@@ -62,6 +64,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.util.WebUtils;
 
 @Service
 public class AdminApiService {
@@ -937,6 +942,9 @@ public class AdminApiService {
             admin.getEmail(), OrderStatus.delivered);
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("deliveriesDone", deliveriesDone);
+    m.put(
+        "availability",
+        admin.getAvailabilityStatus() != null ? admin.getAvailabilityStatus() : "offline");
     m.put("lastLoginAt", admin.getLastLoginAt() != null ? admin.getLastLoginAt().toString() : null);
     m.put("lastLogoutAt", admin.getLastLogoutAt() != null ? admin.getLastLogoutAt().toString() : null);
     return m;
@@ -948,6 +956,16 @@ public class AdminApiService {
       throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Delivery role required");
     }
     return admin;
+  }
+
+  /**
+   * Lowercase {@code admin_users.email} for in-app admin notifications (list / mark-read / push keys).
+   * Matches {@link NotificationService#notifyAdminEmail} and uses the same operator resolution as
+   * {@link #resolveCurrentAdminUser()} (admin session cookie, email principal, UUID→phone).
+   */
+  @Transactional(readOnly = true)
+  public String currentAdminNotificationRecipientId() {
+    return resolveCurrentAdminUser().getEmail().trim().toLowerCase();
   }
 
   private static final class DeliveryDateWindow {
@@ -1092,8 +1110,11 @@ public class AdminApiService {
   @Transactional
   public Map<String, Object> setCurrentDeliveryAvailability(String availability) {
     String value = availability == null ? "" : availability.trim().toLowerCase();
-    if (!"offline".equals(value)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be offline");
+    if (!("offline".equals(value) || "free".equals(value))) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          "availability must be free or offline");
     }
     AdminUser current = resolveCurrentAdminUser();
     if (!"delivery".equalsIgnoreCase(current.getRole())) {
@@ -1300,11 +1321,30 @@ public class AdminApiService {
     return digits;
   }
 
+  /**
+   * Resolves the operator row in {@code admin_users}.
+   *
+   * <p>When the client sends both {@code Authorization: Bearer} (JWT subject = storefront user UUID)
+   * and a valid {@link AdminSessionService#COOKIE_NAME admin_session} cookie from email/password login,
+   * the JWT runs first in the filter chain and would otherwise force phone-based lookup only. Preferring
+   * the admin session email restores super_admin/sales resolution by email while keeping OTP employees
+   * on the UUID→phone path when no admin cookie is present.
+   */
   private AdminUser resolveCurrentAdminUser() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated()) {
       throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Not authenticated");
     }
+
+    Optional<String> cookieEmail = resolveAdminSessionEmailFromCookie();
+    if (cookieEmail.isPresent()) {
+      Optional<AdminUser> fromSession =
+          adminUserRepository.findByEmailIgnoreCase(cookieEmail.get());
+      if (fromSession.isPresent()) {
+        return fromSession.get();
+      }
+    }
+
     String principal = String.valueOf(auth.getName()).trim();
     if (principal.contains("@")) {
       return adminUserRepository
@@ -1317,11 +1357,49 @@ public class AdminApiService {
           userRepository
               .findById(userId)
               .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "User not found"));
-      return adminUserRepository
-          .findByPhoneE164(user.getPhoneE164())
-          .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Admin user not found"));
+      Optional<AdminUser> byPhone = adminUserRepository.findByPhoneE164(user.getPhoneE164());
+      if (byPhone.isPresent()) {
+        return byPhone.get();
+      }
+      Optional<AdminUser> byProfileEmail =
+          userProfileRepository
+              .findById(userId)
+              .flatMap(
+                  profile -> {
+                    String em = profile.getEmail();
+                    if (em == null || em.isBlank()) {
+                      return Optional.empty();
+                    }
+                    return adminUserRepository.findByEmailIgnoreCase(em.trim());
+                  });
+      if (byProfileEmail.isPresent()) {
+        return byProfileEmail.get();
+      }
+      throw new ApiException(
+          HttpStatus.NOT_FOUND,
+          "NOT_FOUND",
+          "Admin user not found for this session: use admin email login, or link this account’s phone"
+              + " to an admin employee, or set profile email to match your admin_users email.");
     } catch (IllegalArgumentException ex) {
       throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid principal");
+    }
+  }
+
+  /** Active admin login cookie → normalized email, if request context is available (skipped in async/unit tests). */
+  private Optional<String> resolveAdminSessionEmailFromCookie() {
+    try {
+      var attrs = RequestContextHolder.getRequestAttributes();
+      if (!(attrs instanceof ServletRequestAttributes servletAttrs)) {
+        return Optional.empty();
+      }
+      HttpServletRequest req = servletAttrs.getRequest();
+      var cookie = WebUtils.getCookie(req, AdminSessionService.COOKIE_NAME);
+      if (cookie == null || cookie.getValue() == null || cookie.getValue().isBlank()) {
+        return Optional.empty();
+      }
+      return adminSessionService.resolveSessionEmail(cookie.getValue());
+    } catch (IllegalStateException ex) {
+      return Optional.empty();
     }
   }
 
