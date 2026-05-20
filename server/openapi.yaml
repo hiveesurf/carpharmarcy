@@ -2,8 +2,13 @@ openapi: 3.0.3
 info:
   title: CARNALYSYS API
   description: |
-    Spring Boot API (reference). **Refresh**: httpOnly cookie `refreshToken` (also accepts body for tools).
-    **Admin**: `admin@carnalysys.com` / `admin123` when seeded.
+    Spring Boot API (reference).
+
+    **Storefront auth:** `POST /auth/send-otp` then `POST /auth/verify-otp` → `accessToken` in JSON; httpOnly `refreshToken` cookie for rotation via `POST /auth/refresh-token`. Sign out with `POST /auth/logout`.
+
+    **Admin auth (phone + OTP only):** Use the same OTP endpoints. After verify, if the phone matches `admin_users.phone_e164`, the user role is promoted (`super_admin`, `sales`, or `delivery`). Call `/admin/**` with `Authorization: Bearer <JWT>`. Phones not linked in `admin_users` receive **403** on admin routes. There is no `POST /admin/auth/login` and no `adminSession` cookie. `admin_users.email` is contact metadata only (not login).
+
+    **Dev seed:** super-admin phone `9876543210`, OTP `123456`, contact email `admin@carnalysys.com`.
   version: 2.0.0
 servers:
   - url: http://localhost:8080/api/v1
@@ -201,84 +206,114 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses: { '200': { description: OK } }
-  /admin/auth/login:
-    post:
-      tags: [Admin]
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email: { type: string }
-                password: { type: string }
-      responses: { '200': { description: OK } }
   /admin/products:
     get:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Phone not linked to admin_users or non-admin JWT }
     post:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/products/{id}:
     put:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
     delete:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/products/{id}/publish:
     patch:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/categories:
     get:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
     post:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/categories/{id}:
     put:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
     delete:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/orders:
     get:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/orders/{id}/status:
     patch:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/users:
     get:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/users/{id}:
     get:
       tags: [Admin]
+      security: [{ bearerAuth: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
-      responses: { '200': { description: OK } }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /admin/dashboard:
     get:
       tags: [Admin]
-      responses: { '200': { description: OK } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
 components:
   securitySchemes:
     bearerAuth:

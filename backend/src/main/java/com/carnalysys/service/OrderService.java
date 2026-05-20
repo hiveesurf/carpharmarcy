@@ -649,7 +649,7 @@ public class OrderService {
             .filter(o -> !Objects.equals(o.getId(), statusChangedOrderId))
             .anyMatch(o -> isDeliveryActiveStatus(o.getStatus()));
 
-    String target = hasOtherActiveAssignedOrders ? "busy" : "free";
+    String target = hasOtherActiveAssignedOrders ? "busy" : "online";
     if (!target.equalsIgnoreCase(delivery.getAvailabilityStatus())) {
       delivery.setAvailabilityStatus(target);
       adminUserRepository.save(delivery);

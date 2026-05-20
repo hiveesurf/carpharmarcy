@@ -124,15 +124,15 @@ function formatTs(iso) {
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString()
 }
 
-/** Backend availability_status → dashboard label */
+/** Backend availability_status → dashboard label (uppercase; legacy `free` treated as online). */
 function availabilityLabel(raw) {
   const s = String(raw ?? '')
     .trim()
     .toLowerCase()
-  if (s === 'free') return 'Online'
-  if (s === 'busy') return 'Busy'
-  if (s === 'offline') return 'Offline'
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'
+  if (s === 'online' || s === 'free') return 'ONLINE'
+  if (s === 'busy') return 'BUSY'
+  if (s === 'offline') return 'OFFLINE'
+  return s ? s.toUpperCase() : '—'
 }
 
 export function AdminOverviewPage() {
@@ -196,7 +196,7 @@ export function AdminOverviewPage() {
   }, [isDelivery])
 
   async function setDeliveryAvailability(next) {
-    if (!isDelivery || (next !== 'free' && next !== 'offline')) return
+    if (!isDelivery || (next !== 'online' && next !== 'offline')) return
     setAvailabilitySaving(next)
     setError(null)
     try {
@@ -254,12 +254,12 @@ export function AdminOverviewPage() {
                       availabilitySaving !== null ||
                       String(deliverySummary.availability ?? '')
                         .trim()
-                        .toLowerCase() === 'free'
+                        .toLowerCase() === 'online'
                     }
-                    onClick={() => void setDeliveryAvailability('free')}
+                    onClick={() => void setDeliveryAvailability('online')}
                     className="rounded-xl bg-accent px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {availabilitySaving === 'free' ? 'Updating…' : 'Set online'}
+                    {availabilitySaving === 'online' ? 'Updating…' : 'Set online'}
                   </button>
                   <button
                     type="button"
@@ -318,7 +318,6 @@ export function AdminOverviewPage() {
   const top = Array.isArray(data?.topProducts) ? data.topProducts : []
   const chartRows = normalizeChartRows(data?.revenueVsPurchases)
   const stats = statMeta.filter((s) => !(isSales && (s.key === 'revenue' || s.key === 'purchaseValue')))
-  const salesPerformance = Array.isArray(data?.salesPerformance) ? data.salesPerformance : []
 
   return (
     <div className="space-y-8">
@@ -388,34 +387,6 @@ export function AdminOverviewPage() {
               )}
             </div>
           </section> : null}
-
-          {!isSales && salesPerformance.length > 0 ? (
-            <section className="admin-card overflow-hidden">
-              <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
-                <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-mist">Sales performance</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-steel/50 font-mono text-[10px] uppercase tracking-wider text-mist">
-                      <th className="px-5 py-3 font-medium">Salesperson</th>
-                      <th className="px-5 py-3 font-medium text-right">Orders</th>
-                      <th className="px-5 py-3 font-medium text-right">Units sold</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-steel/40">
-                    {salesPerformance.map((row) => (
-                      <tr key={row.email}>
-                        <td className="px-5 py-3 text-fog">{row.name || row.email}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-mist">{row.ordersCount ?? 0}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-mist">{row.unitsSold ?? 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
 
           <section className="admin-card overflow-hidden">
             <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">

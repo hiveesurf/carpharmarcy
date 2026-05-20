@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
@@ -35,12 +36,70 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
 
   List<OrderEntity> findByAssignedDeliveryAdminEmailOrderByPlacedAtDesc(String assignedDeliveryAdminEmail);
 
+  List<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCase(String assignedDeliveryAdminEmail);
+
   List<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseAndStatusInOrderByUpdatedAtDesc(
       String assignedDeliveryAdminEmail, Collection<OrderStatus> statuses);
 
   long countByAssignedDeliveryAdminEmailIgnoreCaseAndStatus(
       String assignedDeliveryAdminEmail, OrderStatus status);
 
+  long countByUser_Id(UUID userId);
+
+  long countByUser_IdAndStatus(UUID userId, OrderStatus status);
+
+  Page<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseOrderByPlacedAtDesc(
+      String assignedDeliveryAdminEmail, Pageable pageable);
+
+  @Query(
+      """
+      SELECT COUNT(o) FROM OrderEntity o
+      WHERE lower(o.assignedDeliveryAdminEmail) = lower(:email)
+        AND o.status IN :statuses
+      """)
+  long countByAssignedDeliveryAdminEmailIgnoreCaseAndStatusIn(
+      @Param("email") String email, @Param("statuses") Collection<OrderStatus> statuses);
+
   Page<OrderEntity> findAllByOrderByPlacedAtDesc(Pageable pageable);
+
+  @Query(
+      """
+      SELECT COUNT(o) FROM OrderEntity o
+      WHERE lower(o.assignedDeliveryAdminEmail) = lower(:email)
+        AND o.placedAt >= :startInclusive
+        AND o.placedAt < :endExclusive
+        AND o.status IN :statuses
+      """)
+  long countAssignedOrdersPlacedBetweenWithStatuses(
+      @Param("email") String email,
+      @Param("startInclusive") Instant startInclusive,
+      @Param("endExclusive") Instant endExclusive,
+      @Param("statuses") Collection<OrderStatus> statuses);
+
+  @Query(
+      """
+      SELECT o FROM OrderEntity o JOIN o.user u
+      WHERE lower(o.assignedDeliveryAdminEmail) = lower(:email)
+        AND o.placedAt >= :startInclusive
+        AND o.placedAt < :endExclusive
+        AND o.status IN :visibleStatuses
+        AND (
+          lower(o.id) LIKE :searchPat
+          OR lower(coalesce(u.displayName, '')) LIKE :searchPat
+          OR EXISTS (
+            SELECT 1 FROM UserProfile p
+            WHERE p.userId = u.id
+              AND lower(coalesce(p.fullName, '')) LIKE :searchPat
+          )
+        )
+      ORDER BY o.placedAt DESC
+      """)
+  Page<OrderEntity> findEmployeeAssignedOrdersPlacedBetween(
+      @Param("email") String email,
+      @Param("startInclusive") Instant startInclusive,
+      @Param("endExclusive") Instant endExclusive,
+      @Param("visibleStatuses") Set<OrderStatus> visibleStatuses,
+      @Param("searchPat") String searchPat,
+      Pageable pageable);
 
 }

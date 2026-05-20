@@ -24,8 +24,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -43,58 +41,6 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @MockBean private AdminApiService adminApiService;
   @MockBean private NotificationService notificationService;
-
-  @Test
-  void loginOk() throws Exception {
-    when(adminApiService.loginAndCreateSession("admin@test.dev", "secret")).thenReturn("sess-token");
-    mockMvc
-        .perform(
-            post("/api/v1/admin/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"admin@test.dev\",\"password\":\"secret\"}"))
-        .andExpect(status().isOk())
-        .andExpect(JsonEnvelopeMatchers.successTrue())
-        .andExpect(jsonPath("$.data.ok").value(true));
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "{}",
-        "{\"email\":\"\",\"password\":\"x\"}",
-        "{\"email\":\"not-an-email\",\"password\":\"x\"}",
-        "{\"email\":\"admin@test.dev\",\"password\":\"\"}"
-      })
-  void loginValidationFails(String body) throws Exception {
-    mockMvc
-        .perform(post("/api/v1/admin/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
-        .andExpect(status().isBadRequest())
-        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
-  }
-
-  @Test
-  void loginEmailTooLong() throws Exception {
-    String longEmail = "a".repeat(250) + "@x.co";
-    mockMvc
-        .perform(
-            post("/api/v1/admin/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"" + longEmail + "\",\"password\":\"x\"}"))
-        .andExpect(status().isBadRequest())
-        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
-  }
-
-  @Test
-  void loginPasswordTooLong() throws Exception {
-    String longPw = "p".repeat(201);
-    mockMvc
-        .perform(
-            post("/api/v1/admin/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"a@b.co\",\"password\":\"" + longPw + "\"}"))
-        .andExpect(status().isBadRequest())
-        .andExpect(JsonEnvelopeMatchers.errorCode("VALIDATION_ERROR"));
-  }
 
   @Test
   void dashboardOk() throws Exception {
@@ -274,15 +220,6 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
-  void logoutOkWithExistingCookie() throws Exception {
-    mockMvc
-        .perform(post("/api/v1/admin/auth/logout").with(asAdmin()).cookie(new jakarta.servlet.http.Cookie("admin_session", "tok")))
-        .andExpect(status().isOk())
-        .andExpect(JsonEnvelopeMatchers.successTrue())
-        .andExpect(jsonPath("$.data.ok").value(true));
-  }
-
-  @Test
   void carsListOkWithBrandFilter() throws Exception {
     when(adminApiService.listCarsAdminPage(eq(false), eq("Toyota"), eq(0), eq(5)))
         .thenReturn(
@@ -304,6 +241,22 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
+  void carFormOptionsOk() throws Exception {
+    when(adminApiService.listCarFormOptionCatalog())
+        .thenReturn(
+            Map.of(
+                "fuels",
+                List.of(Map.of("label", "Petrol")),
+                "transmissions",
+                List.of(Map.of("label", "Manual"))));
+    mockMvc
+        .perform(get("/api/v1/admin/cars/form-options").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.fuels[0].label").value("Petrol"))
+        .andExpect(jsonPath("$.data.transmissions[0].label").value("Manual"));
+  }
+
+  @Test
   void getCarOk() throws Exception {
     when(adminApiService.getCarAdmin("car_1")).thenReturn(Map.of("id", "car_1"));
     mockMvc
@@ -314,7 +267,7 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void createCarOk() throws Exception {
-    when(adminApiService.upsertCar(isNull(), any())).thenReturn(Map.of("id", "car_2"));
+    when(adminApiService.createCar(any())).thenReturn(Map.of("car", Map.of("id", "car_2")));
     mockMvc
         .perform(
             post("/api/v1/admin/cars")
@@ -322,12 +275,12 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"brandName\":\"Toyota\",\"model\":\"Innova\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.id").value("car_2"));
+        .andExpect(jsonPath("$.data.car.id").value("car_2"));
   }
 
   @Test
   void updateCarOk() throws Exception {
-    when(adminApiService.upsertCar(eq("car_1"), any())).thenReturn(Map.of("id", "car_1"));
+    when(adminApiService.updateCar(eq("car_1"), any())).thenReturn(Map.of("car", Map.of("id", "car_1")));
     mockMvc
         .perform(
             put("/api/v1/admin/cars/car_1")
@@ -335,7 +288,7 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"brandName\":\"Toyota\",\"model\":\"Fortuner\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.id").value("car_1"));
+        .andExpect(jsonPath("$.data.car.id").value("car_1"));
   }
 
   @Test
@@ -409,29 +362,96 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void createEmployeeOk() throws Exception {
-    when(adminApiService.createEmployee(any())).thenReturn(Map.of("id", "emp_1", "status", "pending"));
+    when(adminApiService.createEmployee(any())).thenReturn(Map.of("employee", Map.of("phone", "1234567890")));
     mockMvc
         .perform(
             post("/api/v1/admin/employees")
                 .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"phone\":\"+911234567890\",\"role\":\"sales\",\"name\":\"A\"}"))
+                .content("{\"phone\":\"1234567890\",\"role\":\"sales\",\"name\":\"A\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.status").value("pending"));
+        .andExpect(jsonPath("$.data.employee.phone").value("1234567890"));
+  }
+
+  @Test
+  void getEmployeeOk() throws Exception {
+    when(adminApiService.getEmployee("1234567890"))
+        .thenReturn(Map.of("employee", Map.of("phone", "1234567890", "role", "sales")));
+    mockMvc
+        .perform(get("/api/v1/admin/employees/1234567890").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.employee.role").value("sales"));
+  }
+
+  @Test
+  void updateEmployeeOk() throws Exception {
+    when(adminApiService.updateEmployee(eq("1234567890"), any()))
+        .thenReturn(Map.of("employee", Map.of("phone", "9123456789")));
+    mockMvc
+        .perform(
+            put("/api/v1/admin/employees/1234567890")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phone\":\"9123456789\",\"role\":\"delivery\",\"name\":\"B\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.employee.phone").value("9123456789"));
+  }
+
+  @Test
+  void deleteEmployeeOk() throws Exception {
+    when(adminApiService.deleteEmployee("1234567890")).thenReturn(Map.of("removed", "1234567890"));
+    mockMvc
+        .perform(delete("/api/v1/admin/employees/1234567890").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.removed").value("1234567890"));
   }
 
   @Test
   void setEmployeeAvailabilityOk() throws Exception {
-    when(adminApiService.setEmployeeAvailability("+911234567890", "free"))
-        .thenReturn(Map.of("id", "emp_1", "availability", "free"));
+    when(adminApiService.setEmployeeAvailability("+911234567890", "online"))
+        .thenReturn(Map.of("id", "emp_1", "availability", "online"));
     mockMvc
         .perform(
             patch("/api/v1/admin/employees/+911234567890/availability")
                 .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"availability\":\"free\"}"))
+                .content("{\"availability\":\"online\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.availability").value("free"));
+        .andExpect(jsonPath("$.data.availability").value("online"));
+  }
+
+  @Test
+  void employeeDeliveryOrdersOk() throws Exception {
+    Map<String, Object> summary =
+        Map.of("assignedCount", 2L, "shippedCount", 1L, "deliveredCount", 1L, "deliverySuccessRate", 50.0);
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("orderId", "ord1");
+    row.put("customerName", "A");
+    row.put("orderDate", "2026-05-01T10:00:00Z");
+    row.put("amount", 100L);
+    row.put("status", "shipped");
+    row.put("deliveredDate", null);
+    when(adminApiService.getEmployeeDeliveryOrders(
+            eq("1234567890"), eq("2026-05-01"), eq("2026-05-31"), eq("a1"), eq(0), eq(20)))
+        .thenReturn(
+            Map.of(
+                "summary", summary,
+                "orders", List.of(row),
+                "page", 0,
+                "size", 20,
+                "totalElements", 1L,
+                "totalPages", 1,
+                "hasNext", false));
+    mockMvc
+        .perform(
+            get("/api/v1/admin/employees/1234567890/delivery-orders")
+                .queryParam("fromDate", "2026-05-01")
+                .queryParam("toDate", "2026-05-31")
+                .queryParam("search", "a1")
+                .with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.summary.assignedCount").value(2))
+        .andExpect(jsonPath("$.data.orders[0].orderId").value("ord1"));
   }
 
   @Test

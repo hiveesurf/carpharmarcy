@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,8 +34,10 @@ public class CatalogSeedService {
   private final ProductFitmentLabelRepository fitmentLabelRepository;
   private final ProductVehicleSpecRepository vehicleSpecRepository;
   private final AdminUserRepository adminUserRepository;
-  private final PasswordEncoder passwordEncoder;
   private final ObjectMapper objectMapper;
+
+  /** Demo OTP phone (see {@code app.otp.demo-code}); must match migration V18 backfill. */
+  private static final String SEED_ADMIN_PHONE = "9876543210";
 
   public CatalogSeedService(
       CategoryRepository categoryRepository,
@@ -44,14 +45,12 @@ public class CatalogSeedService {
       ProductFitmentLabelRepository fitmentLabelRepository,
       ProductVehicleSpecRepository vehicleSpecRepository,
       AdminUserRepository adminUserRepository,
-      PasswordEncoder passwordEncoder,
       ObjectMapper objectMapper) {
     this.categoryRepository = categoryRepository;
     this.productRepository = productRepository;
     this.fitmentLabelRepository = fitmentLabelRepository;
     this.vehicleSpecRepository = vehicleSpecRepository;
     this.adminUserRepository = adminUserRepository;
-    this.passwordEncoder = passwordEncoder;
     this.objectMapper = objectMapper;
   }
 
@@ -160,8 +159,9 @@ public class CatalogSeedService {
     }
     AdminUser a = new AdminUser();
     a.setEmail(email);
-    a.setPasswordHash(passwordEncoder.encode("admin123"));
+    a.setPhoneE164(SEED_ADMIN_PHONE);
     a.setRole("super_admin");
+    a.setOnboardingStatus("success");
     adminUserRepository.save(a);
   }
 }

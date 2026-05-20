@@ -1,4 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Package,
+  RefreshCw,
+  ShoppingBag,
+  Truck,
+  XCircle,
+  CheckCircle2,
+  Clock,
+  RotateCcw,
+  Inbox,
+  Filter,
+  Download,
+  ChevronDown,
+} from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
@@ -24,8 +39,70 @@ const ORDER_STATUS_FILTERS = [
   { key: 'cancelled', label: 'Cancelled' },
   { key: 'refund', label: 'Refund' },
 ]
+
 const PAGE_SIZE = 5
 const PHONE_SEARCH_DEBOUNCE_MS = 350
+
+const canvasClass =
+  '-mx-4 min-w-0 rounded-none bg-[#eaeded] px-4 py-5 dark:bg-ink/40 md:-mx-6 md:rounded-xl md:px-6 lg:-mx-0 lg:rounded-xl lg:px-8'
+
+const AMAZON_TEAL_BTN =
+  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#007185] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#005f6b] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/40 disabled:opacity-50'
+
+const TABLE_TH =
+  'px-3 py-2 align-middle text-left text-[11px] font-semibold text-[#565959] dark:text-mist lg:px-4'
+const TABLE_CELL = 'px-3 py-2 align-middle text-left text-[13px] text-[#0f1111] dark:text-fog lg:px-4'
+const TABLE_CELL_META = 'px-3 py-2 align-middle text-left text-[13px] text-[#565959] dark:text-mist lg:px-4'
+const TABLE_ROW = 'h-11 transition-colors hover:bg-[#f7fafa] dark:hover:bg-steel/15'
+
+const FILTER_FIELD_LABEL = 'mb-1 block text-xs font-normal text-[#565959] dark:text-mist'
+const FILTER_INPUT =
+  'h-10 w-full min-w-0 rounded-md border border-[#888c8c] bg-white px-3 text-sm text-[#0f1111] outline-none focus:border-[#007185] focus:ring-1 focus:ring-[#007185]/30 dark:border-steel/60 dark:bg-slate dark:text-fog'
+const FILTER_SELECT = `${FILTER_INPUT} appearance-none pr-10`
+const TOOLBAR_BTN =
+  'inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-[#888c8c] bg-white px-3 text-sm font-normal text-[#0f1111] hover:bg-[#f7fafa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/30 dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30'
+
+const TOOLBAR_BTN_EXPORT = `${TOOLBAR_BTN} px-4`
+
+const FILTER_TOOLBAR_ROW =
+  'flex w-full min-w-0 flex-wrap items-end gap-3 lg:flex-nowrap'
+
+function FilterSelect({ id, value, onChange, className = '', children }) {
+  return (
+    <div className="relative">
+      <select id={id} value={value} onChange={onChange} className={`${FILTER_SELECT} ${className}`.trim()}>
+        {children}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500 dark:text-mist"
+        aria-hidden
+      />
+    </div>
+  )
+}
+
+const DATE_RANGE_OPTIONS = [
+  { key: 'all', label: 'All time' },
+  { key: 'today', label: 'Today' },
+  { key: '7', label: 'Last 7 days' },
+  { key: '30', label: 'Last 30 days' },
+  { key: '90', label: 'Last 90 days' },
+  { key: 'custom', label: 'Custom range' },
+]
+
+const HIGH_VALUE_INR = 10000
+
+const MENU_MIN_WIDTH = 168
+const MENU_GAP = 6
+const MENU_EST_HEIGHT = 120
+
+function deliveryAvailabilityUiLabel(raw) {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'online' || s === 'free') return 'ONLINE'
+  if (s === 'busy') return 'BUSY'
+  if (s === 'offline') return 'OFFLINE'
+  return s ? s.toUpperCase() : 'OFFLINE'
+}
 
 function formatInr(n) {
   if (n == null) return '—'
@@ -36,25 +113,526 @@ function formatInr(n) {
   }).format(Number(n))
 }
 
+function formatDateTime(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+}
+
 function normalizeOrderStatus(raw) {
   const s = String(raw ?? '').trim().toLowerCase()
   if (s === 'dispatched') return 'shipped'
   return s
 }
 
-function statusStyle(s) {
-  switch (s) {
-    case 'delivered':
-      return 'bg-accent-muted text-accent ring-accent/35'
-    case 'cancelled':
-    case 'refunded':
-      return 'bg-flare-muted text-flare ring-flare/30'
-    case 'shipped':
-    case 'processing':
-      return 'bg-hud/15 text-hud ring-hud/35'
-    default:
-      return 'bg-steel/50 text-mist ring-steel/60'
+function matchesStatusTab(statusRaw, tabKey) {
+  const status = normalizeOrderStatus(statusRaw)
+  if (tabKey === 'all') return true
+  if (tabKey === 'refund') return status === 'refund' || status === 'refunded'
+  if (tabKey === 'placed') return status === 'placed' || status === 'created' || status === 'confirmed'
+  if (tabKey === 'delivered') return status === 'delivered' || status === 'deliverd'
+  return status === tabKey
+}
+
+function parseOrderDate(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function startOfDay(d) {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+function endOfDay(d) {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
+function toDateInputValue(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function presetToRange(preset) {
+  const now = new Date()
+  const end = toDateInputValue(now)
+  if (preset === 'all') return { from: '', to: '' }
+  if (preset === 'today') return { from: end, to: end }
+  const days = preset === '7' ? 7 : preset === '30' ? 30 : preset === '90' ? 90 : 0
+  if (days > 0) {
+    const fromDate = new Date(now)
+    fromDate.setDate(fromDate.getDate() - (days - 1))
+    return { from: toDateInputValue(fromDate), to: end }
   }
+  return { from: '', to: '' }
+}
+
+function matchesDateRange(order, preset, customFrom, customTo) {
+  if (preset === 'all') return true
+  const created = parseOrderDate(order?.createdAt)
+  if (!created) return false
+
+  let from = null
+  let to = endOfDay(new Date())
+
+  if (preset === 'custom') {
+    if (!customFrom && !customTo) return true
+    if (customFrom) from = startOfDay(new Date(`${customFrom}T00:00:00`))
+    if (customTo) to = endOfDay(new Date(`${customTo}T00:00:00`))
+  } else {
+    const range = presetToRange(preset)
+    if (range.from) from = startOfDay(new Date(`${range.from}T00:00:00`))
+    if (range.to) to = endOfDay(new Date(`${range.to}T00:00:00`))
+  }
+
+  if (from && created < from) return false
+  if (to && created > to) return false
+  return true
+}
+
+function looksLikePhoneQuery(q) {
+  const t = q.trim()
+  if (t.length < 6) return false
+  const digits = t.replace(/\D/g, '')
+  return digits.length >= 6 && /^[\d\s+\-()]+$/.test(t)
+}
+
+function escapeCsvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
+
+function exportOrdersToCsv(orders, employeeByEmail, isDelivery) {
+  const headers = ['Order ID', 'Customer', 'Phone', 'Status', 'Assigned', 'Total', 'Items', 'Created']
+  const lines = [
+    headers.join(','),
+    ...orders.map((o) =>
+      [
+        o.id,
+        o.customerName?.trim() || 'Customer',
+        o.customerPhone || '',
+        normalizeOrderStatus(o.status),
+        assigneeLabel(o, employeeByEmail),
+        isDelivery ? '' : o.total ?? '',
+        lineItemCount(o),
+        o.createdAt || '',
+      ]
+        .map(escapeCsvCell)
+        .join(','),
+    ),
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function buildOrderSummaryCounts(orders) {
+  const counts = {
+    total: orders.length,
+    placed: 0,
+    processing: 0,
+    shipped: 0,
+    delivered: 0,
+    cancelled: 0,
+    refund: 0,
+  }
+  for (const o of orders) {
+    const s = normalizeOrderStatus(o?.status)
+    if (s === 'refunded') counts.refund += 1
+    else if (matchesStatusTab(s, 'placed')) counts.placed += 1
+    else if (s === 'processing') counts.processing += 1
+    else if (s === 'shipped') counts.shipped += 1
+    else if (matchesStatusTab(s, 'delivered')) counts.delivered += 1
+    else if (s === 'cancelled') counts.cancelled += 1
+  }
+  return counts
+}
+
+const STATUS_BADGE_PILL =
+  'inline-flex h-6 items-center justify-center rounded-full border px-2.5 text-[11px] font-medium capitalize leading-none'
+
+function orderStatusBadgeClass(status) {
+  const s = normalizeOrderStatus(status)
+  switch (s) {
+    case 'placed':
+    case 'confirmed':
+    case 'created':
+      return 'border-blue-400/50 bg-blue-500/12 text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/18 dark:text-blue-100'
+    case 'processing':
+      return 'border-amber-400/50 bg-amber-500/12 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/18 dark:text-amber-100'
+    case 'shipped':
+      return 'border-green-400/50 bg-green-500/12 text-green-900 dark:border-green-500/40 dark:bg-green-500/18 dark:text-green-100'
+    case 'delivered':
+    case 'deliverd':
+      return 'border-emerald-400/50 bg-emerald-500/12 text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/18 dark:text-emerald-100'
+    case 'cancelled':
+      return 'border-red-400/50 bg-red-500/12 text-red-900 dark:border-red-500/40 dark:bg-red-500/18 dark:text-red-100'
+    case 'refunded':
+    case 'refund':
+      return 'border-purple-400/50 bg-purple-500/12 text-purple-900 dark:border-purple-500/40 dark:bg-purple-500/18 dark:text-purple-100'
+    default:
+      return 'border-[#d1d5db] bg-[#f3f4f6] text-[#374151] dark:border-steel/55 dark:bg-steel/25 dark:text-fog'
+  }
+}
+
+function OrderStatusBadge({ status }) {
+  const label = normalizeOrderStatus(status) || '—'
+  return <span className={`${STATUS_BADGE_PILL} ${orderStatusBadgeClass(status)}`}>{label}</span>
+}
+
+function assigneeLabel(order, employeeByEmail) {
+  const email = String(order?.assignedDeliveryAdminEmail ?? '').trim()
+  if (!email) return 'Unassigned'
+  const emp = employeeByEmail.get(email.toLowerCase())
+  return emp?.name?.trim() || email
+}
+
+function AssignedDeliveryCell({
+  order,
+  isSuperAdmin,
+  deliveryEmployees,
+  employeeByEmail,
+  employeesLoaded,
+  busyId,
+  onAssign,
+}) {
+  const label = assigneeLabel(order, employeeByEmail)
+
+  if (!isSuperAdmin) {
+    return (
+      <span
+        className={
+          order.assignedDeliveryAdminEmail
+            ? 'text-[13px] text-[#0f1111] dark:text-fog'
+            : 'text-[13px] italic text-[#565959] dark:text-mist'
+        }
+      >
+        {label}
+      </span>
+    )
+  }
+
+  if (!employeesLoaded) {
+    return <span className="inline-block min-h-[2rem] min-w-[10rem] text-[12px] text-[#565959] dark:text-mist"> </span>
+  }
+
+  const anyOnline = deliveryEmployees.some(
+    (d) => String(d?.availability || '').toLowerCase() === 'online',
+  )
+  const options = deliveryEmployees.filter((d) => {
+    const availability = String(d?.availability || '').toLowerCase()
+    return availability === 'online' || d.email === order.assignedDeliveryAdminEmail
+  })
+
+  if (!anyOnline && !order.assignedDeliveryAdminEmail) {
+    return (
+      <span className="text-[12px] italic leading-snug text-[#565959] dark:text-mist">
+        No online delivery available
+      </span>
+    )
+  }
+
+  return (
+    <select
+      value={order.assignedDeliveryAdminEmail || ''}
+      disabled={busyId === order.id}
+      onChange={(e) => onAssign(order.id, e.target.value)}
+      className="w-full min-w-[10rem] max-w-[14rem] rounded-md border border-[#d5d9d9] bg-white px-2 py-1 text-[12px] text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
+      aria-label={`Assign delivery for order ${order.id}`}
+    >
+      <option value="">Unassigned</option>
+      {options.map((d) => (
+        <option key={d.email} value={d.email}>
+          {(d.name || d.email) + ` (${deliveryAvailabilityUiLabel(d.availability)})`}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function lineItemCount(order) {
+  const lines = Array.isArray(order?.lines) ? order.lines : []
+  return lines.reduce((sum, l) => sum + (Number(l?.quantity) || 0), 0)
+}
+
+function OrderSummaryCard({ label, value, icon: Icon, iconBg, iconColor }) {
+  return (
+    <div className="flex min-h-[5.25rem] flex-col rounded-lg border border-[#d5d9d9] bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,17,17,0.07)] dark:border-steel/60 dark:bg-slate">
+      <div
+        className={`mb-2 flex h-8 w-8 items-center justify-center rounded-full ${iconBg}`}
+        aria-hidden
+      >
+        {Icon ? <Icon className={`h-4 w-4 ${iconColor}`} strokeWidth={2} /> : null}
+      </div>
+      <p className="font-sans text-xl font-semibold tabular-nums leading-none tracking-tight text-[#0f1111] dark:text-fog">
+        {value ?? 0}
+      </p>
+      <p className="mt-1 text-[11px] leading-tight text-[#565959] dark:text-mist">{label}</p>
+    </div>
+  )
+}
+
+function OrdersEmptyState({ title, description }) {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+      <div
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f3f4f6] dark:bg-steel/25"
+        aria-hidden
+      >
+        <Inbox className="h-7 w-7 text-[#aab7b8] dark:text-mist" strokeWidth={1.5} />
+      </div>
+      <p className="mt-4 text-base font-medium text-[#0f1111] dark:text-fog">{title}</p>
+      {description ? (
+        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-[#565959] dark:text-mist">{description}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function OrderActionsMenu({
+  order,
+  isDelivery,
+  isSuperAdmin,
+  busyId,
+  deliveryEmployees,
+  onChangeStatus,
+  onMarkDelivered,
+  onAssign,
+  onToggleLines,
+  linesExpanded,
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState(null)
+  const triggerRef = useRef(null)
+  const menuRef = useRef(null)
+  const statusUi = normalizeOrderStatus(order.status)
+  const canMarkDelivered = isDelivery && statusUi === 'shipped'
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const menuHeight = menuRef.current?.offsetHeight ?? MENU_EST_HEIGHT
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openUpward = spaceBelow < menuHeight + MENU_GAP + 12
+    const top = openUpward ? rect.top - menuHeight - MENU_GAP : rect.bottom + MENU_GAP
+    const right = Math.max(8, window.innerWidth - rect.right)
+    setMenuPos({ top, right })
+  }, [])
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPos(null)
+      return
+    }
+    updateMenuPosition()
+    const raf = requestAnimationFrame(updateMenuPosition)
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(ev) {
+      const t = ev.target
+      if (triggerRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const menu =
+    open && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: menuPos?.top ?? -9999,
+              right: menuPos?.right ?? 8,
+              minWidth: MENU_MIN_WIDTH,
+              zIndex: 200,
+              visibility: menuPos ? 'visible' : 'hidden',
+            }}
+            className="overflow-hidden rounded-lg border border-[#d5d9d9] bg-white py-1 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2.5 text-left text-sm text-[#0f1111] hover:bg-[#f7fafa] dark:text-fog dark:hover:bg-steel/30"
+              onClick={() => {
+                setOpen(false)
+                onToggleLines()
+              }}
+            >
+              {linesExpanded ? 'Hide line items' : 'View line items'}
+            </button>
+            {!isDelivery ? (
+              <div className="border-t border-[#e7e7e7] px-3 py-2 dark:border-steel/50">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#565959]">
+                  Update status
+                </label>
+                <select
+                  value={order.status}
+                  disabled={busyId === order.id}
+                  onChange={(e) => {
+                    setOpen(false)
+                    onChangeStatus(order, e.target.value)
+                  }}
+                  className="w-full rounded-md border border-[#d5d9d9] bg-white px-2 py-1.5 text-xs text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
+                >
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {isSuperAdmin ? (
+              <div className="border-t border-[#e7e7e7] px-3 py-2 dark:border-steel/50">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#565959]">
+                  Assign delivery
+                </label>
+                <select
+                  value={order.assignedDeliveryAdminEmail || ''}
+                  onChange={(e) => {
+                    setOpen(false)
+                    onAssign(order.id, e.target.value)
+                  }}
+                  className="w-full rounded-md border border-[#d5d9d9] bg-white px-2 py-1.5 text-xs text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
+                >
+                  <option value="">Unassigned</option>
+                  {deliveryEmployees
+                    .filter((d) => {
+                      const availability = String(d?.availability || '').toLowerCase()
+                      return availability === 'online' || d.email === order.assignedDeliveryAdminEmail
+                    })
+                    .map((d) => (
+                      <option key={d.email} value={d.email}>
+                        {(d.name || d.email) + ` (${deliveryAvailabilityUiLabel(d.availability)})`}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : null}
+            {canMarkDelivered ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busyId === order.id}
+                className="flex w-full border-t border-[#e7e7e7] px-3 py-2.5 text-left text-sm font-medium text-accent hover:bg-accent/10 disabled:opacity-50 dark:border-steel/50"
+                onClick={() => {
+                  setOpen(false)
+                  onMarkDelivered(order)
+                }}
+              >
+                {busyId === order.id ? 'Updating…' : 'Mark delivered'}
+              </button>
+            ) : null}
+          </div>,
+          document.body,
+        )
+      : null
+
+  return (
+    <>
+      <div className="inline-flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onToggleLines}
+          className="whitespace-nowrap rounded border border-[#d5d9d9] bg-white px-2 py-1 text-[11px] font-normal text-[#0f1111] shadow-[0_1px_2px_rgba(15,17,17,0.08)] hover:bg-[#f7fafa] dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30"
+          aria-expanded={linesExpanded}
+        >
+          {linesExpanded ? 'Hide details' : 'View order details'}
+        </button>
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border border-transparent text-[#565959] hover:border-[#d5d9d9] hover:bg-[#f7fafa] dark:hover:bg-steel/30 ${open ? 'border-[#d5d9d9] bg-[#f7fafa]' : ''}`}
+          aria-label="More order actions"
+          aria-expanded={open}
+          aria-haspopup="menu"
+        >
+          <span className="text-base leading-none">⋯</span>
+        </button>
+      </div>
+      {menu}
+    </>
+  )
+}
+
+function OrderLinesPanel({ order, isDelivery }) {
+  return (
+    <div className="border-t border-[#e7e7e7] bg-[#fafafa] px-5 py-3 dark:border-steel/50 dark:bg-ink/10">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="text-xs font-semibold text-[#565959] dark:text-mist">
+            <th className="pb-2 pr-4 font-semibold">Product</th>
+            <th className="pb-2 pr-4 text-right font-semibold">Qty</th>
+            {!isDelivery ? (
+              <>
+                <th className="pb-2 pr-4 text-right font-semibold">Unit</th>
+                <th className="pb-2 text-right font-semibold">Line</th>
+              </>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
+          {(order.lines || []).map((line, i) => (
+            <tr key={`${order.id}-${i}`}>
+              <td className="py-2 pr-4 text-[#0f1111] dark:text-fog">
+                <span className="font-medium">{line.productName || line.productId}</span>
+                {line.sku ? (
+                  <span className="mt-0.5 block font-mono text-[10px] text-[#565959]">{line.sku}</span>
+                ) : null}
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums">{line.quantity}</td>
+              {!isDelivery ? (
+                <>
+                  <td className="py-2 pr-4 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
+                  <td className="py-2 text-right tabular-nums font-medium">{formatInr(line.lineTotal)}</td>
+                </>
+              ) : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {isDelivery && normalizeOrderStatus(order.status) !== 'shipped' &&
+      ['placed', 'confirmed', 'processing'].includes(normalizeOrderStatus(order.status)) ? (
+        <p className="mt-2 text-xs text-[#565959] dark:text-mist">
+          Order must be shipped before delivery completion.
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 export function AdminOrdersPage() {
@@ -62,31 +640,94 @@ export function AdminOrdersPage() {
   const isDelivery = sessionRole === 'delivery'
   const isSuperAdmin = sessionRole === 'super_admin'
   const [items, setItems] = useState([])
+  const [summaryOrders, setSummaryOrders] = useState([])
+  const [summaryLoading, setSummaryLoading] = useState(false)
   const [users, setUsers] = useState([])
   const [deliveryEmployees, setDeliveryEmployees] = useState([])
+  const [deliveryEmployeesLoaded, setDeliveryEmployeesLoaded] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [busyId, setBusyId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [phoneSearch, setPhoneSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [phoneForApi, setPhoneForApi] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [dateRangePreset, setDateRangePreset] = useState('all')
+  const [dateRangeFrom, setDateRangeFrom] = useState('')
+  const [dateRangeTo, setDateRangeTo] = useState('')
+  const [extraPaymentStatus, setExtraPaymentStatus] = useState('')
+  const [extraHighValueOnly, setExtraHighValueOnly] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filtersRef = useRef(null)
   const [hasMore, setHasMore] = useState(false)
   const [nextPage, setNextPage] = useState(1)
-  const [settingOffline, setSettingOffline] = useState(false)
-  /** Delivery-only: filter completed deliveries by month / date range (UTC, matches order updatedAt). */
+  const [expandedOrderId, setExpandedOrderId] = useState(null)
   const [deliveryMonth, setDeliveryMonth] = useState('')
   const [deliveryFrom, setDeliveryFrom] = useState('')
   const [deliveryTo, setDeliveryTo] = useState('')
 
   useEffect(() => {
+    if (isDelivery) return
     const id = window.setTimeout(() => {
-      setPhoneForApi(phoneSearch.trim())
+      const t = searchInput.trim()
+      setPhoneForApi(looksLikePhoneQuery(t) ? t.replace(/\D/g, '') : '')
     }, PHONE_SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(id)
-  }, [phoneSearch])
+  }, [searchInput, isDelivery])
+
+  useEffect(() => {
+    if (!isDelivery) return
+    if (dateRangePreset === 'custom') return
+    if (dateRangePreset === 'all') {
+      setDeliveryFrom('')
+      setDeliveryTo('')
+      setDeliveryMonth('')
+      return
+    }
+    const { from, to } = presetToRange(dateRangePreset)
+    setDeliveryFrom(from)
+    setDeliveryTo(to)
+    setDeliveryMonth('')
+  }, [dateRangePreset, isDelivery])
+
+  useEffect(() => {
+    if (!filtersOpen) return
+    function onPointerDown(ev) {
+      if (filtersRef.current?.contains(ev.target)) return
+      setFiltersOpen(false)
+    }
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') setFiltersOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [filtersOpen])
+
+  const employeeByEmail = useMemo(() => {
+    const map = new Map()
+    for (const e of deliveryEmployees) {
+      if (e?.email) map.set(String(e.email).toLowerCase(), e)
+    }
+    return map
+  }, [deliveryEmployees])
+
+  const loadSummary = useCallback(async () => {
+    if (isDelivery) return
+    setSummaryLoading(true)
+    try {
+      const all = await adminService.listAllOrdersForSummary()
+      setSummaryOrders(all)
+    } catch {
+      setSummaryOrders([])
+    } finally {
+      setSummaryLoading(false)
+    }
+  }, [isDelivery])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -113,6 +754,7 @@ export function AdminOrdersPage() {
         setItems(result.items || [])
         setHasMore(Boolean(result.hasMore))
         setNextPage(Number.isFinite(result.nextPage) ? result.nextPage : 1)
+        void loadSummary()
       }
     } catch (e) {
       setError(getFetchErrorMessage(e))
@@ -122,7 +764,7 @@ export function AdminOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [isDelivery, phoneForApi, deliveryMonth, deliveryFrom, deliveryTo])
+  }, [isDelivery, phoneForApi, deliveryMonth, deliveryFrom, deliveryTo, loadSummary])
 
   const loadMore = useCallback(async () => {
     if (isDelivery || loadingMore || !hasMore) return
@@ -145,11 +787,15 @@ export function AdminOrdersPage() {
   }, [isDelivery, loadingMore, hasMore, nextPage, phoneForApi])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   useEffect(() => {
-    if (!isSuperAdmin) return
+    if (!isSuperAdmin) {
+      setDeliveryEmployeesLoaded(true)
+      return
+    }
+    setDeliveryEmployeesLoaded(false)
     ;(async () => {
       try {
         const list = await adminService.listEmployees()
@@ -160,6 +806,8 @@ export function AdminOrdersPage() {
         )
       } catch {
         setDeliveryEmployees([])
+      } finally {
+        setDeliveryEmployeesLoaded(true)
       }
     })()
   }, [isSuperAdmin])
@@ -175,7 +823,7 @@ export function AdminOrdersPage() {
     })()
   }, [])
 
-  const normalizedSearch = searchQuery.trim().toLowerCase()
+  const normalizedSearch = searchInput.trim().toLowerCase()
 
   const suggestions = useMemo(() => {
     if (!normalizedSearch || selectedUserId) return []
@@ -186,47 +834,85 @@ export function AdminOrdersPage() {
         return id.includes(normalizedSearch) || name.includes(normalizedSearch)
       })
       .slice(0, 8)
-  }, [users, normalizedSearch])
+  }, [users, normalizedSearch, selectedUserId])
+
+  const paymentStatusOptions = useMemo(() => {
+    const set = new Set()
+    for (const o of items) {
+      const ps = o?.paymentStatus
+      if (ps != null && String(ps).trim()) set.add(String(ps).trim())
+    }
+    return [...set].sort()
+  }, [items])
+
+  const hasTotalField = useMemo(() => items.some((o) => o?.total != null && !Number.isNaN(Number(o.total))), [items])
+  const hasExtraFilters = paymentStatusOptions.length > 0 || hasTotalField
 
   const filteredItems = useMemo(() => {
-    const byUserSearch = (o) => {
-      if (selectedUserId) {
-        return String(o?.userId || '') === selectedUserId
-      }
+    const matchesSearch = (o) => {
+      if (selectedUserId) return String(o?.userId || '') === selectedUserId
       if (!normalizedSearch) return true
+      const q = normalizedSearch
       const orderUserId = String(o?.userId || '').toLowerCase()
       const orderUserName = String(o?.customerName || '').toLowerCase()
-      return orderUserId.includes(normalizedSearch) || orderUserName.includes(normalizedSearch)
+      const orderId = String(o?.id || '').toLowerCase()
+      const phone = String(o?.customerPhone || '').toLowerCase()
+      return (
+        orderUserId.includes(q) ||
+        orderUserName.includes(q) ||
+        orderId.includes(q) ||
+        phone.includes(q)
+      )
     }
-    if (isDelivery) {
-      return items.filter(byUserSearch)
-    }
+
     return items.filter((o) => {
-      const status = String(o?.status || '').toLowerCase()
-      if (statusFilter !== 'all') {
-        const statusOk =
-          statusFilter === 'refund'
-            ? status === 'refund' || status === 'refunded'
-            : statusFilter === 'placed'
-              ? status === 'placed' || status === 'created' || status === 'confirmed'
-              : statusFilter === 'delivered'
-                ? status === 'delivered' || status === 'deliverd'
-                : status === statusFilter
-        if (!statusOk) return false
+      if (!matchesSearch(o)) return false
+      if (statusFilter !== 'all' && !matchesStatusTab(o?.status, statusFilter)) return false
+      if (
+        !matchesDateRange(
+          o,
+          dateRangePreset,
+          isDelivery ? deliveryFrom : dateRangeFrom,
+          isDelivery ? deliveryTo : dateRangeTo,
+        )
+      ) {
+        return false
       }
-      return byUserSearch(o)
+      if (extraPaymentStatus && String(o?.paymentStatus ?? '') !== extraPaymentStatus) return false
+      if (extraHighValueOnly && (Number(o?.total) || 0) < HIGH_VALUE_INR) return false
+      return true
     })
-  }, [items, statusFilter, normalizedSearch, selectedUserId, isDelivery])
+  }, [
+    items,
+    statusFilter,
+    normalizedSearch,
+    selectedUserId,
+    isDelivery,
+    dateRangePreset,
+    dateRangeFrom,
+    dateRangeTo,
+    deliveryFrom,
+    deliveryTo,
+    extraPaymentStatus,
+    extraHighValueOnly,
+  ])
+
+  const displaySummary = useMemo(() => {
+    if (isDelivery) return buildOrderSummaryCounts(items)
+    return buildOrderSummaryCounts(summaryOrders)
+  }, [isDelivery, items, summaryOrders])
 
   const hasPhoneSearch = !isDelivery && !!phoneForApi
   const hasUserSearch = !!selectedUserId || !!normalizedSearch
-  const hasDeliveryDateFilter = isDelivery && !!(deliveryMonth.trim() || deliveryFrom.trim() || deliveryTo.trim())
-  const hasStatusFilter = !isDelivery && statusFilter !== 'all'
+  const hasDateFilter = dateRangePreset !== 'all'
+  const hasStatusFilter = statusFilter !== 'all'
+  const hasExtraFilterActive = !!extraPaymentStatus || extraHighValueOnly
   const activeFilterCount =
     (hasPhoneSearch ? 1 : 0) +
     (hasUserSearch ? 1 : 0) +
     (hasStatusFilter ? 1 : 0) +
-    (hasDeliveryDateFilter ? 1 : 0)
+    (hasDateFilter ? 1 : 0) +
+    (hasExtraFilterActive ? 1 : 0)
 
   async function changeStatus(order, status) {
     if (status === order.status) return
@@ -235,6 +921,9 @@ export function AdminOrdersPage() {
       const updated = await adminService.patchOrderStatus(order.id, status)
       if (updated) {
         setItems((prev) => prev.map((o) => (o.id === order.id ? { ...o, ...updated } : o)))
+        setSummaryOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? { ...o, ...updated } : o)),
+        )
       } else {
         await load()
       }
@@ -262,423 +951,483 @@ export function AdminOrdersPage() {
     }
   }
 
-  function deliveryAwaitingShip(status) {
-    const s = normalizeOrderStatus(status)
-    return s === 'placed' || s === 'confirmed' || s === 'processing'
-  }
-
   async function assign(orderId, deliveryAdminEmail) {
-    if (!deliveryAdminEmail) return
     try {
       await adminService.assignDelivery(orderId, deliveryAdminEmail)
-      setItems((prev) => prev.map((o) => (o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail } : o)))
-      setDeliveryEmployees((prev) =>
-        prev.map((employee) =>
-          employee.email === deliveryAdminEmail
-            ? { ...employee, availability: 'busy' }
-            : employee,
+      setItems((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail || null } : o,
         ),
       )
+      setSummaryOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail || null } : o,
+        ),
+      )
+      if (deliveryAdminEmail) {
+        setDeliveryEmployees((prev) =>
+          prev.map((employee) =>
+            employee.email === deliveryAdminEmail ? { ...employee, availability: 'busy' } : employee,
+          ),
+        )
+      }
     } catch (e) {
       setError(getFetchErrorMessage(e))
     }
   }
 
-  async function setSelfOffline() {
-    if (!isDelivery) return
-    setSettingOffline(true)
-    try {
-      await adminService.setMyDeliveryAvailability('offline')
-    } catch (e) {
-      setError(getFetchErrorMessage(e))
-    } finally {
-      setSettingOffline(false)
+  const emptyStateCopy = useMemo(() => {
+    if (items.length === 0 && activeFilterCount === 0) {
+      return isDelivery
+        ? { title: 'No deliveries yet', description: 'Orders assigned to you will appear here.' }
+        : { title: 'No orders yet', description: 'New customer orders will show up in this list.' }
     }
-  }
+    if (activeFilterCount >= 2) {
+      return {
+        title: 'No orders found',
+        description: 'No orders match the selected filters. Try adjusting your search or filters.',
+      }
+    }
+    if (hasPhoneSearch) {
+      return {
+        title: 'No orders found',
+        description: 'No orders match this phone number. Check the number and try again.',
+      }
+    }
+    if (hasUserSearch) {
+      return {
+        title: 'No orders found',
+        description: 'No orders match this user or order ID search.',
+      }
+    }
+    return {
+      title: 'No orders found',
+      description: 'No orders match the selected filters.',
+    }
+  }, [items.length, activeFilterCount, isDelivery, hasPhoneSearch, hasUserSearch])
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
-            {isDelivery ? 'My deliveries' : 'Orders'}
-          </h1>
-          <p className="text-sm text-mist">
-            {isDelivery
-              ? 'Orders assigned to you (placed through delivered). Date filters apply to last update time (UTC). Prices are hidden.'
-              : 'Fulfillment queue — update status as orders progress.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isDelivery ? (
-            <button
-              type="button"
-              disabled={settingOffline}
-              onClick={() => void setSelfOffline()}
-              className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent disabled:opacity-60"
-            >
-              {settingOffline ? 'Setting…' : 'Set offline'}
-            </button>
-          ) : null}
+    <div className={canvasClass}>
+      <div className="mx-auto max-w-[90rem] space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-xl font-normal text-[#0f1111] dark:text-fog sm:text-[1.35rem]">
+              {isDelivery ? 'My deliveries' : 'Orders'}
+            </h1>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#565959] dark:text-mist">
+              {isDelivery
+                ? 'Orders assigned to you. Date filters use last update time (UTC). Prices are hidden.'
+                : 'Track fulfillment, update status, and assign delivery from one queue.'}
+            </p>
+          </div>
           <button
             type="button"
-            onClick={() => load()}
-            className="self-start rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent"
+            onClick={() => void load()}
+            className={`${AMAZON_TEAL_BTN} self-start`}
           >
+            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
             Refresh
           </button>
         </div>
-      </div>
 
-      <div className="space-y-3">
-        {isDelivery ? (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Month (UTC)</label>
-              <input
-                type="month"
-                value={deliveryMonth}
-                onChange={(e) => setDeliveryMonth(e.target.value)}
-                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">From (UTC date)</label>
-              <input
-                type="date"
-                value={deliveryFrom}
-                onChange={(e) => setDeliveryFrom(e.target.value)}
-                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">To (UTC date)</label>
-              <input
-                type="date"
-                value={deliveryTo}
-                onChange={(e) => setDeliveryTo(e.target.value)}
-                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog focus:border-accent/50 focus:outline-none"
-              />
-            </div>
-            <div className="flex flex-col justify-end gap-2 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="rounded-xl border border-accent/40 bg-accent/15 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/25"
-              >
-                Apply filters
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDeliveryMonth('')
-                  setDeliveryFrom('')
-                  setDeliveryTo('')
-                }}
-                className="rounded-xl border border-steel/80 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/50 hover:text-fog"
-              >
-                Clear dates
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {ORDER_STATUS_FILTERS.map((f) => {
-              const active = statusFilter === f.key
-              return (
-                <button
-                  key={f.key}
-                  type="button"
-                  onClick={() => setStatusFilter(f.key)}
-                  className={`rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${
-                    active
-                      ? 'border-accent/50 bg-accent/20 text-accent'
-                      : 'border-steel/70 bg-ink/60 text-mist hover:border-hud/50 hover:text-fog'
-                  }`}
-                  aria-pressed={active}
-                >
-                  {f.label}
-                </button>
-              )
-            })}
-          </div>
-        )}
+        {error ? (
+          <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog">{error}</div>
+        ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2">
-            {!isDelivery ? (
-              <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
-                  SEARCH BY PHONE
-                </label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
+          <OrderSummaryCard
+            label="Total orders"
+            value={summaryLoading && !isDelivery ? '…' : displaySummary.total}
+            icon={ShoppingBag}
+            iconBg="bg-[#f3f4f6] dark:bg-steel/30"
+            iconColor="text-[#0f1111] dark:text-fog"
+          />
+          <OrderSummaryCard
+            label="Placed"
+            value={displaySummary.placed}
+            icon={Clock}
+            iconBg="bg-blue-50 dark:bg-blue-500/15"
+            iconColor="text-blue-600"
+          />
+          <OrderSummaryCard
+            label="Processing"
+            value={displaySummary.processing}
+            icon={Package}
+            iconBg="bg-amber-50 dark:bg-amber-500/15"
+            iconColor="text-amber-600"
+          />
+          <OrderSummaryCard
+            label="Shipped"
+            value={displaySummary.shipped}
+            icon={Truck}
+            iconBg="bg-green-50 dark:bg-green-500/15"
+            iconColor="text-green-600"
+          />
+          <OrderSummaryCard
+            label="Delivered"
+            value={displaySummary.delivered}
+            icon={CheckCircle2}
+            iconBg="bg-emerald-50 dark:bg-emerald-500/15"
+            iconColor="text-emerald-600"
+          />
+          <OrderSummaryCard
+            label="Cancelled"
+            value={displaySummary.cancelled}
+            icon={XCircle}
+            iconBg="bg-red-50 dark:bg-red-500/15"
+            iconColor="text-red-600"
+          />
+          <OrderSummaryCard
+            label="Refund"
+            value={displaySummary.refund}
+            icon={RotateCcw}
+            iconBg="bg-purple-50 dark:bg-purple-500/15"
+            iconColor="text-purple-600"
+          />
+        </div>
+
+        <section className="min-w-0 rounded-lg border border-[#d5d9d9] bg-white shadow-[0_1px_2px_rgba(15,17,17,0.07)] dark:border-steel/60 dark:bg-slate">
+          <div className="w-full min-w-0 border-b border-[#e7e7e7] px-3 py-3 dark:border-steel/50 sm:px-4">
+            <div className={FILTER_TOOLBAR_ROW}>
+              <div className="relative z-30 min-w-[280px] max-w-none w-full flex-1">
                 <input
-                  value={phoneSearch}
-                  onChange={(e) => setPhoneSearch(e.target.value)}
-                  placeholder="Search By Phone"
+                  value={searchInput}
+                  onChange={(e) => {
+                    setSearchInput(e.target.value)
+                    setSelectedUserId('')
+                  }}
+                  placeholder="Search by order ID, customer name, phone"
                   autoComplete="off"
-                  className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog placeholder:text-mist/80 focus:border-accent/50 focus:outline-none"
+                  className={`${FILTER_INPUT} w-full`}
+                  aria-label="Search orders"
                 />
+                {selectedUserId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserId('')
+                      setSearchInput('')
+                    }}
+                    className="mt-1 text-xs font-medium text-[#007185] hover:underline"
+                  >
+                    Clear selected user
+                  </button>
+                ) : null}
+                {suggestions.length > 0 ? (
+                  <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-[#d5d9d9] bg-white shadow-lg dark:border-steel/60 dark:bg-slate">
+                    <ul className="max-h-72 overflow-auto">
+                      {suggestions.map((u) => {
+                        const avatar = resolveApiAssetUrl(u?.avatarUrl)
+                        return (
+                          <li key={u.id}>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => {
+                                e.preventDefault()
+                                setSelectedUserId(String(u.id || ''))
+                                setSearchInput(`${u.name || ''}`.trim() || String(u.id || ''))
+                              }}
+                              className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-[#f7fafa] dark:hover:bg-steel/20"
+                            >
+                              {avatar ? (
+                                <img
+                                  src={avatar}
+                                  alt=""
+                                  className="h-8 w-8 rounded-full border border-[#d5d9d9] object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f3f4f6] text-xs font-semibold text-[#565959]">
+                                  {(String(u?.name || 'U').trim()[0] || 'U').toUpperCase()}
+                                </div>
+                              )}
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-[#0f1111] dark:text-fog">
+                                  {u?.name?.trim() ? u.name : 'User'}
+                                </span>
+                                <span className="block truncate font-mono text-[10px] text-[#565959]">{u.id}</span>
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="w-full flex-shrink-0 lg:w-[170px]">
+                <label htmlFor="orders-filter-date-range" className={FILTER_FIELD_LABEL}>
+                  Date range
+                </label>
+                <FilterSelect
+                  id="orders-filter-date-range"
+                  value={dateRangePreset}
+                  onChange={(e) => setDateRangePreset(e.target.value)}
+                  className="w-full lg:w-[170px]"
+                >
+                  {DATE_RANGE_OPTIONS.map((opt) => (
+                    <option key={opt.key} value={opt.key}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </FilterSelect>
+              </div>
+
+              <div className="w-full flex-shrink-0 lg:w-[170px]">
+                <label htmlFor="orders-filter-status" className={FILTER_FIELD_LABEL}>
+                  Order status
+                </label>
+                <FilterSelect
+                  id="orders-filter-status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full lg:w-[170px]"
+                >
+                  {ORDER_STATUS_FILTERS.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                    </option>
+                  ))}
+                </FilterSelect>
+              </div>
+
+              <div className="relative flex-shrink-0" ref={filtersRef}>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  className={`${TOOLBAR_BTN}${hasExtraFilterActive ? ' border-[#007185] ring-1 ring-[#007185]/25' : ''}`}
+                  aria-expanded={filtersOpen}
+                  aria-haspopup="true"
+                >
+                  <Filter className="h-4 w-4" aria-hidden />
+                  Filters
+                </button>
+                {filtersOpen ? (
+                  <div className="absolute right-0 z-50 mt-1 w-56 rounded-md border border-[#d5d9d9] bg-white py-2 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate">
+                    {!hasExtraFilters ? (
+                      <p className="px-3 py-2 text-xs text-[#565959] dark:text-mist">
+                        No additional filters available
+                      </p>
+                    ) : (
+                      <div className="space-y-2 px-3">
+                        {paymentStatusOptions.length > 0 ? (
+                          <label className="block">
+                            <span className={FILTER_FIELD_LABEL}>Payment status</span>
+                            <FilterSelect
+                              value={extraPaymentStatus}
+                              onChange={(e) => setExtraPaymentStatus(e.target.value)}
+                              className="w-full"
+                            >
+                              <option value="">All</option>
+                              {paymentStatusOptions.map((ps) => (
+                                <option key={ps} value={ps}>
+                                  {ps}
+                                </option>
+                              ))}
+                            </FilterSelect>
+                          </label>
+                        ) : null}
+                        {hasTotalField ? (
+                          <label className="flex cursor-pointer items-center gap-2 text-xs text-[#0f1111] dark:text-fog">
+                            <input
+                              type="checkbox"
+                              checked={extraHighValueOnly}
+                              onChange={(e) => setExtraHighValueOnly(e.target.checked)}
+                              className="rounded border-[#888c8c]"
+                            />
+                            High value orders (≥ {formatInr(HIGH_VALUE_INR)})
+                          </label>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => exportOrdersToCsv(filteredItems, employeeByEmail, isDelivery)}
+                  disabled={filteredItems.length === 0}
+                  className={`${TOOLBAR_BTN_EXPORT} disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <Download className="h-4 w-4" aria-hidden />
+                  Export
+                </button>
+              </div>
+            </div>
+
+            {dateRangePreset === 'custom' ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#e7e7e7] pt-2 dark:border-steel/50">
+                {isDelivery ? (
+                  <div className="min-w-[9rem]">
+                    <span className="mb-0.5 block text-[10px] text-[#565959]">Month (UTC)</span>
+                    <input
+                      type="month"
+                      value={deliveryMonth}
+                      onChange={(e) => setDeliveryMonth(e.target.value)}
+                      className={FILTER_INPUT}
+                    />
+                  </div>
+                ) : null}
+                <div className="min-w-[9rem]">
+                  <span className="mb-0.5 block text-[10px] text-[#565959]">From</span>
+                  <input
+                    type="date"
+                    value={isDelivery ? deliveryFrom : dateRangeFrom}
+                    onChange={(e) =>
+                      isDelivery ? setDeliveryFrom(e.target.value) : setDateRangeFrom(e.target.value)
+                    }
+                    className={FILTER_INPUT}
+                  />
+                </div>
+                <div className="min-w-[9rem]">
+                  <span className="mb-0.5 block text-[10px] text-[#565959]">To</span>
+                  <input
+                    type="date"
+                    value={isDelivery ? deliveryTo : dateRangeTo}
+                    onChange={(e) =>
+                      isDelivery ? setDeliveryTo(e.target.value) : setDateRangeTo(e.target.value)
+                    }
+                    className={FILTER_INPUT}
+                  />
+                </div>
+                {isDelivery ? (
+                  <button
+                    type="button"
+                    onClick={() => void load()}
+                    className={`${TOOLBAR_BTN} mt-4 border-[#007185] bg-[#007185] text-white hover:bg-[#005f6b]`}
+                  >
+                    Apply dates
+                  </button>
+                ) : null}
               </div>
             ) : null}
-
-            <div className="relative z-30">
-              <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
-                SEARCH BY USER NAME OR USER ID
-              </label>
-              <input
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setSelectedUserId('')
-                }}
-                placeholder="Search By User Name Or User ID"
-                className="w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog placeholder:text-mist/80 focus:border-accent/50 focus:outline-none"
-              />
-              {selectedUserId ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedUserId('')
-                    setSearchQuery('')
-                  }}
-                  className="mt-2 rounded-lg border border-steel/70 bg-ink/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-mist hover:border-hud/50 hover:text-fog"
-                >
-                  Clear selected user
-                </button>
-              ) : null}
-              {suggestions.length > 0 ? (
-                <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-steel/70 bg-ink/95 shadow-xl pointer-events-auto">
-                  <ul className="max-h-72 overflow-auto">
-                    {suggestions.map((u) => {
-                      const avatar = resolveApiAssetUrl(u?.avatarUrl)
-                      return (
-                        <li key={u.id}>
-                          <button
-                            type="button"
-                            onPointerDown={(e) => {
-                              // Use mouse down so selection applies before input blur.
-                              e.preventDefault()
-                              setSelectedUserId(String(u.id || ''))
-                              setSearchQuery(`${u.name || ''}`.trim() || String(u.id || ''))
-                            }}
-                            className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate/40"
-                          >
-                            {avatar ? (
-                              <img
-                                src={avatar}
-                                alt=""
-                                className="h-8 w-8 rounded-full border border-steel/60 object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-steel/60 bg-steel/25 font-mono text-[10px] uppercase text-mist">
-                                {(String(u?.name || 'U').trim()[0] || 'U').toUpperCase()}
-                              </div>
-                            )}
-                            <span className="min-w-0">
-                              <span className="block truncate font-sans text-sm text-fog">
-                                {u?.name?.trim() ? u.name : 'User'}
-                              </span>
-                              <span className="block truncate font-mono text-[10px] text-mist">
-                                {u.id}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog">
-          {error}
-        </div>
-      )}
-
-      {loading ? (
-        <p className="font-mono text-xs text-mist">Loading orders…</p>
-      ) : (
-        <div className="space-y-4">
-          {filteredItems.length === 0 ? (
-            <p className="admin-card px-5 py-10 text-center text-mist">
-              {items.length === 0 && activeFilterCount === 0
-                ? isDelivery
-                  ? 'No orders assigned to you yet.'
-                  : 'No orders yet.'
-                : activeFilterCount >= 2
-                  ? 'No orders found for the selected filters.'
-                  : hasPhoneSearch
-                    ? 'No orders found for this phone number.'
-                    : hasUserSearch
-                      ? 'No orders found for this user search.'
-                      : hasDeliveryDateFilter || hasStatusFilter
-                        ? 'No orders found for the selected filters.'
-                        : 'No orders yet.'}
+          </div>
+          <div className="border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-2.5 dark:border-steel/50 dark:bg-ink/10">
+            <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">
+              {isDelivery ? 'My deliveries' : 'Manage orders'}
+            </h2>
+            <p className="text-[11px] text-[#565959] dark:text-mist">
+              {loading
+                ? 'Loading…'
+                : `${filteredItems.length} order${filteredItems.length === 1 ? '' : 's'} shown`}
             </p>
-          ) : null}
-          {filteredItems.map((o) => {
-            const statusUi = normalizeOrderStatus(o.status)
-            return (
-            <article
-              key={o.id}
-              className="admin-card overflow-hidden"
-            >
-              <div className="flex flex-col gap-4 border-b border-steel/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="font-mono text-xs text-mist">{o.id}</p>
-                  <p className="mt-1 text-sm text-fog">
-                    <span className="font-semibold">
-                      {o.customerName?.trim() ? o.customerName : 'Customer'}
-                    </span>
-                    {o.customerPhone ? (
-                      <span className="text-mist">
-                        {' '}
-                        · <span className="font-mono text-fog">{o.customerPhone}</span>
-                      </span>
-                    ) : null}
-                    {o.customerEmail ? (
-                      <span className="text-mist">
-                        {' '}
-                        · {o.customerEmail}
-                      </span>
-                    ) : null}
-                    {o.customerRole ? (
-                      <span className="ml-1 rounded-md bg-steel/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-mist">
-                        {o.customerRole}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="mt-0.5 font-mono text-[10px] text-mist/90">
-                    User id <span className="text-mist">{o.userId}</span>
-                    <span className="mx-2 text-steel">·</span>
-                    Placed {o.createdAt ? new Date(o.createdAt).toLocaleString() : '—'}
-                    {isDelivery && o.deliveredAt ? (
-                      <>
-                        <span className="mx-2 text-steel">·</span>
-                        Completed {new Date(o.deliveredAt).toLocaleString()} <span className="text-mist">(UTC basis)</span>
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={`inline-flex rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ring-1 ${statusStyle(statusUi)}`}
-                  >
-                    {statusUi}
-                  </span>
-                  {isDelivery && statusUi === 'shipped' ? (
-                    <button
-                      type="button"
-                      disabled={busyId === o.id}
-                      onClick={() => void markDelivered(o)}
-                      className="rounded-xl border border-accent/50 bg-accent/20 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {busyId === o.id ? 'Updating…' : 'Mark Delivered'}
-                    </button>
-                  ) : null}
-                  {!isDelivery ? (
-                    <>
-                      <span className="font-display text-lg font-bold tabular-nums text-fog">
-                        {formatInr(o.total)}
-                      </span>
-                      <select
-                        value={o.status}
-                        disabled={busyId === o.id}
-                        onChange={(e) => changeStatus(o, e.target.value)}
-                        className="rounded-lg border border-steel/80 bg-ink/40 px-2 py-1.5 font-mono text-[11px] text-fog focus:border-accent/50 focus:outline-none disabled:opacity-50"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  ) : null}
-                  {isSuperAdmin ? (
-                    <select
-                      value={o.assignedDeliveryAdminEmail || ''}
-                      onChange={(e) => assign(o.id, e.target.value)}
-                      className="rounded-lg border border-steel/80 bg-ink/40 px-2 py-1.5 font-mono text-[11px] text-fog"
-                    >
-                      <option value="">Assign delivery</option>
-                      {deliveryEmployees
-                        .filter((d) => {
-                          const availability = String(d?.availability || '').toLowerCase()
-                          return availability === 'free' || d.email === o.assignedDeliveryAdminEmail
-                        })
-                        .map((d) => (
-                          <option key={d.email} value={d.email}>
-                            {(d.name || d.email) + ` (${d.availability || 'offline'})`}
-                          </option>
-                        ))}
-                    </select>
-                  ) : null}
-                </div>
-              </div>
-              {isDelivery && deliveryAwaitingShip(o.status) ? (
-                <p className="border-b border-steel/50 px-5 pb-3 text-xs leading-snug text-mist">
-                  Order must be shipped before delivery completion.
-                </p>
-              ) : null}
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[480px] text-left text-sm">
-                  <thead>
-                    <tr className="font-mono text-[10px] uppercase tracking-wider text-mist">
-                      <th className="px-5 py-2 font-medium">Product</th>
-                      <th className="px-5 py-2 font-medium text-right">Qty</th>
-                      {!isDelivery ? (
-                        <>
-                          <th className="px-5 py-2 font-medium text-right">Unit</th>
-                          <th className="px-5 py-2 font-medium text-right">Line</th>
-                        </>
-                      ) : null}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-steel/40 text-mist">
-                    {(o.lines || []).map((line, i) => (
-                      <tr key={`${o.id}-${i}`}>
-                        <td className="px-5 py-2 text-fog">
-                          <span className="font-medium">{line.productName || line.productId}</span>
-                          {line.sku ? (
-                            <span className="mt-0.5 block font-mono text-[10px] text-mist">{line.sku}</span>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-2 text-right tabular-nums">{line.quantity}</td>
-                        {!isDelivery ? (
-                          <>
-                            <td className="px-5 py-2 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
-                            <td className="px-5 py-2 text-right tabular-nums text-fog">
-                              {formatInr(line.lineTotal)}
+          </div>
+
+          {loading ? (
+            <p className="px-4 py-12 text-center text-sm text-[#565959]">Loading orders…</p>
+          ) : filteredItems.length === 0 ? (
+            <OrdersEmptyState title={emptyStateCopy.title} description={emptyStateCopy.description} />
+          ) : (
+            <div className="overflow-x-auto lg:overflow-x-visible">
+              <table className="w-full border-collapse text-left lg:table-fixed">
+                <colgroup className="hidden lg:table-column-group">
+                  <col style={{ width: isDelivery ? '18%' : '14%' }} />
+                  <col style={{ width: isDelivery ? '22%' : '18%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: isDelivery ? '14%' : '12%' }} />
+                  {!isDelivery ? <col style={{ width: '10%' }} /> : null}
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: isDelivery ? '16%' : '14%' }} />
+                  <col style={{ width: isDelivery ? '18%' : '16%' }} />
+                </colgroup>
+                <thead className="sticky top-0 z-10 bg-[#fafafa] dark:bg-ink/15">
+                  <tr className="border-b border-[#e7e7e7] dark:border-steel/50">
+                    <th className={TABLE_TH}>Order ID</th>
+                    <th className={TABLE_TH}>Customer</th>
+                    <th className={TABLE_TH}>Order status</th>
+                    <th className={TABLE_TH}>Assigned</th>
+                    {!isDelivery ? <th className={`${TABLE_TH} text-right`}>Total</th> : null}
+                    <th className={`${TABLE_TH} text-right`}>Items</th>
+                    <th className={TABLE_TH}>Created</th>
+                    <th className={`${TABLE_TH} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
+                  {filteredItems.map((o) => {
+                    const linesExpanded = expandedOrderId === o.id
+                    return (
+                      <Fragment key={o.id}>
+                        <tr className={TABLE_ROW}>
+                          <td className={`${TABLE_CELL} font-mono text-xs`}>{o.id}</td>
+                          <td className={TABLE_CELL}>
+                            <p className="font-medium text-[#0f1111] dark:text-fog">
+                              {o.customerName?.trim() ? o.customerName : 'Customer'}
+                            </p>
+                            {o.customerPhone ? (
+                              <p className="font-mono text-xs text-[#565959]">{o.customerPhone}</p>
+                            ) : null}
+                          </td>
+                          <td className={TABLE_CELL}>
+                            <OrderStatusBadge status={o.status} />
+                          </td>
+                          <td className={TABLE_CELL}>
+                            <AssignedDeliveryCell
+                              order={o}
+                              isSuperAdmin={isSuperAdmin}
+                              deliveryEmployees={deliveryEmployees}
+                              employeeByEmail={employeeByEmail}
+                              employeesLoaded={deliveryEmployeesLoaded}
+                              busyId={busyId}
+                              onAssign={assign}
+                            />
+                          </td>
+                          {!isDelivery ? (
+                            <td className={`${TABLE_CELL} text-right tabular-nums font-medium`}>
+                              {formatInr(o.total)}
                             </td>
-                          </>
+                          ) : null}
+                          <td className={`${TABLE_CELL} text-right tabular-nums`}>{lineItemCount(o)}</td>
+                          <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
+                            {formatDateTime(o.createdAt)}
+                          </td>
+                          <td className={`${TABLE_CELL} text-right`}>
+                            <OrderActionsMenu
+                              order={o}
+                              isDelivery={isDelivery}
+                              isSuperAdmin={isSuperAdmin}
+                              busyId={busyId}
+                              deliveryEmployees={deliveryEmployees}
+                              onChangeStatus={changeStatus}
+                              onMarkDelivered={markDelivered}
+                              onAssign={assign}
+                              onToggleLines={() =>
+                                setExpandedOrderId((id) => (id === o.id ? null : o.id))
+                              }
+                              linesExpanded={linesExpanded}
+                            />
+                          </td>
+                        </tr>
+                        {linesExpanded ? (
+                          <tr>
+                            <td colSpan={isDelivery ? 7 : 8} className="p-0">
+                              <OrderLinesPanel order={o} isDelivery={isDelivery} />
+                            </td>
+                          </tr>
                         ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-            )
-          })}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {!isDelivery && hasMore ? (
-            <div className="pt-2 text-center">
+            <div className="flex justify-center border-t border-[#e7e7e7] px-4 py-3 dark:border-steel/50">
               <button
                 type="button"
                 onClick={() => void loadMore()}
                 disabled={loadingMore}
-                className="rounded-xl border border-accent/40 bg-accent/15 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-[#007185] bg-white px-5 py-2 text-sm font-medium text-[#007185] hover:bg-[#007185]/10 disabled:opacity-50"
               >
                 {loadingMore ? 'Loading…' : 'Load more'}
               </button>
             </div>
           ) : null}
-        </div>
-      )}
+        </section>
+      </div>
     </div>
   )
 }

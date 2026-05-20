@@ -9,7 +9,6 @@ public record AppProperties(
     Jwt jwt,
     RefreshToken refreshToken,
     Otp otp,
-    Admin admin,
     Cors cors,
     Payment payment) {
 
@@ -18,8 +17,6 @@ public record AppProperties(
   public record RefreshToken(int ttlSeconds) {}
 
   public record Otp(String demoCode, int ttlSeconds) {}
-
-  public record Admin(int sessionTtlSeconds) {}
 
   public record Cors(String allowedOrigins) {
     public List<String> originList() {

@@ -1,9 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client.js'
 
-export function adminLogin(body) {
-  return apiPost('/admin/auth/login', body, { skipAuth: true })
-}
-
 export function adminDashboard() {
   return apiGet('/admin/dashboard')
 }
@@ -84,6 +80,10 @@ export function adminListCars(query = {}) {
   return apiGet(`/admin/cars${s ? `?${s}` : ''}`)
 }
 
+export function adminCarFormOptions() {
+  return apiGet('/admin/cars/form-options')
+}
+
 export function adminGetCar(id) {
   return apiGet(`/admin/cars/${encodeURIComponent(id)}`)
 }
@@ -119,6 +119,10 @@ export function adminGetUser(id) {
   return apiGet(`/admin/users/${encodeURIComponent(id)}`)
 }
 
+export function adminGetUserProfile(id) {
+  return apiGet(`/admin/users/${encodeURIComponent(id)}/profile`)
+}
+
 export function adminListEmployees({ page = 0, size = 5 } = {}) {
   const q = new URLSearchParams()
   q.set('page', String(page))
@@ -126,8 +130,43 @@ export function adminListEmployees({ page = 0, size = 5 } = {}) {
   return apiGet(`/admin/employees?${q.toString()}`)
 }
 
+export function adminEmployeesSummary() {
+  return apiGet('/admin/employees/summary')
+}
+
 export function adminCreateEmployee(body) {
   return apiPost('/admin/employees', body)
+}
+
+export function adminGetEmployee(phone) {
+  return apiGet(`/admin/employees/${encodeURIComponent(phone)}`)
+}
+
+export function adminGetEmployeeProfile(phone) {
+  return apiGet(`/admin/employees/${encodeURIComponent(phone)}/profile`)
+}
+
+/**
+ * @param {string} employeeId - Workforce admin UUID or phone (path segment).
+ * @param {{ fromDate?: string, toDate?: string, search?: string, page?: number, size?: number }} [query]
+ */
+export function adminGetEmployeeDeliveryOrders(employeeId, query = {}) {
+  const q = new URLSearchParams()
+  if (query.fromDate) q.set('fromDate', String(query.fromDate))
+  if (query.toDate) q.set('toDate', String(query.toDate))
+  if (query.search && String(query.search).trim()) q.set('search', String(query.search).trim())
+  q.set('page', String(query.page ?? 0))
+  q.set('size', String(query.size ?? 20))
+  const s = q.toString()
+  return apiGet(`/admin/employees/${encodeURIComponent(employeeId)}/delivery-orders${s ? `?${s}` : ''}`)
+}
+
+export function adminUpdateEmployee(phone, body) {
+  return apiPut(`/admin/employees/${encodeURIComponent(phone)}`, body)
+}
+
+export function adminDeleteEmployee(phone) {
+  return apiDelete(`/admin/employees/${encodeURIComponent(phone)}`)
 }
 
 export function adminSetEmployeeAvailability(phone, availability) {

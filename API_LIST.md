@@ -36,7 +36,7 @@ Default frontend request headers/auth behavior (`src/api/client.js`):
 |---|---|---|---|---|---|---|---|
 | Catalog Product | List Products | GET | `/api/v1/products` | Frontend: `src/api/productApi.js` (`getProducts`) / Backend: `CatalogV1Controller.products` | Query: `type?`, `category?`, `search?`, `carModel?`, `carId?`, `sort?`, `page?`, `pageSize?` | No | Used by `src/services/productService.js` |
 | Catalog Product | Get Product By Id | GET | `/api/v1/products/{id}` | Frontend: `src/api/productApi.js` (`getProductById`) / Backend: `CatalogV1Controller.product` | Path: `id` | No | Used by product detail via `productService.fetchProductById` |
-| Admin Product | List Products (Admin) | GET | `/api/v1/admin/products` | Frontend: `src/api/adminApi.js` (`adminListProducts`) / Backend: `AdminV1Controller.products` | Query: `page?`, `pageSize?`, `sort?` | Yes (admin session/JWT role) | Used by `adminService.listProductsPage` |
+| Admin Product | List Products (Admin) | GET | `/api/v1/admin/products` | Frontend: `src/api/adminApi.js` (`adminListProducts`) / Backend: `AdminV1Controller.products` | Query: `page?`, `pageSize?`, `sort?` | Yes (admin JWT after phone OTP) | Used by `adminService.listProductsPage` |
 | Admin Product | Get Product (Admin) | GET | `/api/v1/admin/products/{id}` | Frontend: `src/api/adminApi.js` (`adminGetProduct`) / Backend: `AdminV1Controller.getProduct` | Path: `id` | Yes (admin) | Used by edit drawer via `adminService.getProduct` |
 | Admin Product | Create Product | POST | `/api/v1/admin/products` | Frontend: `src/api/adminApi.js` (`adminCreateProduct`) / Backend: `AdminV1Controller.createProduct` | Body map; observed fields include `type`, `category`, `sku`, `name`, `price`, `purchasePrice`, `totalStock`, `published`, `imageKey`, `description?`, `primaryImageUrl?`, `galleryExtras?`, `compatibleCarIds?`, `partNumber?`, `brand?`, `unitVolume?`, `supplierName?`, `metadata?` | Yes (admin; product routes allow `SUPER_ADMIN`/`SALES`) | Used by `AddProductPanel` through `adminService.createProduct` |
 | Admin Product | Update Product | PUT | `/api/v1/admin/products/{id}` | Frontend: `src/api/adminApi.js` (`adminUpdateProduct`) / Backend: `AdminV1Controller.updateProduct` | Same shape as create; path `id` | Yes (admin; `SUPER_ADMIN`/`SALES`) | Used by `ProductEditDrawer` via `adminService.updateProduct` |
@@ -84,11 +84,25 @@ Default frontend request headers/auth behavior (`src/api/client.js`):
 
 ## 6) Admin/Dashboard APIs
 
+### Admin authentication (phone + OTP only)
+
+There is **no** `POST /api/v1/admin/auth/login` or separate admin logout. Operators use the same storefront OTP flow as customers:
+
+1. `POST /api/v1/auth/send-otp` with `{ "phone": "<10 digits>" }`
+2. `POST /api/v1/auth/verify-otp` with `{ "phone", "otp" }` → returns `accessToken` (JWT) and sets httpOnly `refreshToken` cookie
+3. If the verified phone matches `admin_users.phone_e164`, the backend promotes `users.role` to the employee role (`super_admin`, `sales`, or `delivery`)
+4. Call `/api/v1/admin/**` with `Authorization: Bearer <accessToken>`
+5. Non-admin phones receive **403** on `/api/v1/admin/**` even with a valid user JWT
+
+`admin_users.email` is profile/contact metadata (notifications, synthetic employee emails); it is **not** used for login.
+
+**Dev seed (when catalog seed runs):** super-admin phone `9876543210`, contact email `admin@carnalysys.com`, OTP `123456` (`app.otp.demo-code`).
+
+Sign out via `POST /api/v1/auth/logout` (clears refresh cookie; client clears in-memory access token).
+
 | Module | API Name | Method | Endpoint | Source File | Payload Required | Auth Required | Notes |
 |---|---|---|---|---|---|---|---|
-| Admin Auth | Admin Login | POST | `/api/v1/admin/auth/login` | Frontend: `src/api/adminApi.js` / Backend: `AdminV1Controller.login` | Body: `{ email, password }` | No (`permitAll`) | Creates admin session cookie |
-| Admin Auth | Admin Logout | POST | `/api/v1/admin/auth/logout` | Frontend: `src/api/adminApi.js` (indirect) / Backend: `AdminV1Controller.logout` | None | No (`permitAll`) | Clears admin session cookie |
-| Admin Dashboard | Get Dashboard | GET | `/api/v1/admin/dashboard` | Frontend: `src/api/adminApi.js`; direct fetch in `src/components/auth/AdminRoute.jsx`; Backend: `AdminV1Controller.dashboard` | None | Yes (admin role) | Used to validate admin cookie session in `AdminRoute` |
+| Admin Dashboard | Get Dashboard | GET | `/api/v1/admin/dashboard` | Frontend: `src/api/adminApi.js` / Backend: `AdminV1Controller.dashboard` | None | Yes (admin JWT + linked `admin_users.phone_e164`) | Used by `adminService.dashboard` |
 | Admin Orders | List Orders | GET | `/api/v1/admin/orders` | Frontend: `src/api/adminApi.js` / Backend: `AdminV1Controller.orders` | Query: `phone?`, `page`, `size` | Yes (roles: `SUPER_ADMIN`/`SALES`/`DELIVERY`) | Used by `adminService.listOrders` |
 | Admin Orders | Patch Order Status | PATCH | `/api/v1/admin/orders/{id}/status` | Frontend: `src/api/adminApi.js` / Backend: `AdminV1Controller.orderStatus` | Path: `id`; body: `{ status }` | Yes (admin order roles) | Used by `adminService.patchOrderStatus` |
 | Admin Orders | Assign Delivery | PATCH | `/api/v1/admin/orders/{id}/assign-delivery` | Frontend: `src/api/adminApi.js` / Backend: `AdminV1Controller.assignDelivery` | Path: `id`; body: `{ deliveryAdminEmail }` | Yes (`SUPER_ADMIN` only per security matcher) | Used by `adminService.assignDelivery` |

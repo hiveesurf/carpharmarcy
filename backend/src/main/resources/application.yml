@@ -61,8 +61,6 @@ app:
   otp:
     demo-code: "123456"
     ttl-seconds: 300
-  admin:
-    session-ttl-seconds: 86400
   cors:
     allowed-origins: ""
   payment:

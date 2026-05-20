@@ -9,6 +9,9 @@ import { AdminOrdersPage } from './admin/pages/AdminOrdersPage.jsx'
 import { AdminCategoriesPage } from './admin/pages/AdminCategoriesPage.jsx'
 import { AdminUsersPage } from './admin/pages/AdminUsersPage.jsx'
 import { AdminEmployeesPage } from './admin/pages/AdminEmployeesPage.jsx'
+import { AdminAddEmployeePage } from './admin/pages/AdminAddEmployeePage.jsx'
+import { AdminUserProfilePage } from './admin/pages/AdminUserProfilePage.jsx'
+import { AdminEmployeeProfilePage } from './admin/pages/AdminEmployeeProfilePage.jsx'
 import { markHeroUserLeftHome } from './lib/heroSession'
 import { Navbar } from './components/layout/Navbar'
 import { AdminAppShell } from './components/layout/AdminAppShell.jsx'
@@ -110,7 +113,10 @@ export default function App() {
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="users" element={<AdminUsersPage />} />
+        <Route path="users/:id" element={<AdminUserProfilePage />} />
         <Route path="employees" element={<AdminEmployeesPage />} />
+        <Route path="employees/new" element={<AdminAddEmployeePage />} />
+        <Route path="employees/:phone" element={<AdminEmployeeProfilePage />} />
       </Route>
     </Routes>
     </>

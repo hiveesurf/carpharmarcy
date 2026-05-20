@@ -33,4 +33,13 @@ public final class SecurityTestUtils {
             .build();
     return SecurityMockMvcRequestPostProcessors.user(u);
   }
+
+  public static RequestPostProcessor asSuperAdmin() {
+    UserDetails u =
+        User.withUsername("admin@carnalysys.test")
+            .password("n/a")
+            .roles("ADMIN", "SUPER_ADMIN")
+            .build();
+    return SecurityMockMvcRequestPostProcessors.user(u);
+  }
 }

@@ -2,7 +2,9 @@ package com.carnalysys.service;
 
 import com.carnalysys.api.ApiException;
 import com.carnalysys.domain.Category;
+import com.carnalysys.domain.CarFuelOption;
 import com.carnalysys.domain.CarModelEntity;
+import com.carnalysys.domain.CarTransmissionOption;
 import com.carnalysys.domain.AdminUser;
 import com.carnalysys.domain.OrderEntity;
 import com.carnalysys.domain.OrderStatus;
@@ -13,11 +15,14 @@ import com.carnalysys.domain.ProductFitmentLabel;
 import com.carnalysys.domain.ProductType;
 import com.carnalysys.domain.ProductVehicleSpec;
 import com.carnalysys.domain.UserEntity;
+import com.carnalysys.domain.UserProfile;
 import com.carnalysys.domain.UserRole;
 import com.carnalysys.web.dto.ProductImportReport;
 import com.carnalysys.web.dto.ProductImportRowResult;
 import com.carnalysys.repo.CategoryRepository;
+import com.carnalysys.repo.CarFuelOptionRepository;
 import com.carnalysys.repo.CarModelRepository;
+import com.carnalysys.repo.CarTransmissionOptionRepository;
 import com.carnalysys.repo.OrderRepository;
 import com.carnalysys.repo.OrderStatusAuditRepository;
 import com.carnalysys.repo.ProductChangeAuditRepository;
@@ -25,11 +30,12 @@ import com.carnalysys.repo.ProductFitmentCarRepository;
 import com.carnalysys.repo.ProductFitmentLabelRepository;
 import com.carnalysys.repo.ProductRepository;
 import com.carnalysys.repo.ProductVehicleSpecRepository;
+import com.carnalysys.repo.AddressRepository;
 import com.carnalysys.repo.AdminUserRepository;
 import com.carnalysys.repo.UserProfileRepository;
 import com.carnalysys.repo.UserRepository;
 import com.carnalysys.repo.OrderLineRepository;
-import com.carnalysys.security.AdminSessionService;
+import com.carnalysys.util.CarIdentityNormalizer;
 import com.carnalysys.util.SlugUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,7 +57,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import jakarta.persistence.criteria.Predicate;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
@@ -59,14 +64,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-import org.springframework.web.util.WebUtils;
 
 @Service
 public class AdminApiService {
@@ -83,11 +84,24 @@ public class AdminApiService {
           OrderStatus.shipped,
           OrderStatus.delivered);
 
+  /** In-progress delivery pipeline (excludes delivered terminal state). */
+  private static final List<OrderStatus> EMPLOYEE_ASSIGNED_PIPELINE_STATUSES =
+      List.of(
+          OrderStatus.placed,
+          OrderStatus.confirmed,
+          OrderStatus.processing,
+          OrderStatus.shipped);
+
+  /** Orders shown in employee delivery performance (excludes draft, cancelled, refunded). */
+  private static final Set<OrderStatus> EMPLOYEE_DELIVERY_PAGE_STATUSES =
+      Set.copyOf(DELIVERY_PARTNER_LIST_STATUSES);
+
+  private static final DateTimeFormatter EMPLOYEE_DELIVERY_ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
+
   private final AdminUserRepository adminUserRepository;
-  private final PasswordEncoder passwordEncoder;
-  private final AdminSessionService adminSessionService;
   private final UserRepository userRepository;
   private final UserProfileRepository userProfileRepository;
+  private final AddressRepository addressRepository;
   private final OrderRepository orderRepository;
   private final CategoryRepository categoryRepository;
   private final OrderLineRepository orderLineRepository;
@@ -97,6 +111,8 @@ public class AdminApiService {
   private final ProductFitmentLabelRepository fitmentLabelRepository;
   private final ProductFitmentCarRepository fitmentCarRepository;
   private final CarModelRepository carModelRepository;
+  private final CarFuelOptionRepository carFuelOptionRepository;
+  private final CarTransmissionOptionRepository carTransmissionOptionRepository;
   private final ProductVehicleSpecRepository vehicleSpecRepository;
   private final CatalogService catalogService;
   private final OrderService orderService;
@@ -109,10 +125,9 @@ public class AdminApiService {
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
-      PasswordEncoder passwordEncoder,
-      AdminSessionService adminSessionService,
       UserRepository userRepository,
       UserProfileRepository userProfileRepository,
+      AddressRepository addressRepository,
       OrderRepository orderRepository,
       CategoryRepository categoryRepository,
       OrderLineRepository orderLineRepository,
@@ -122,6 +137,8 @@ public class AdminApiService {
       ProductFitmentLabelRepository fitmentLabelRepository,
       ProductFitmentCarRepository fitmentCarRepository,
       CarModelRepository carModelRepository,
+      CarFuelOptionRepository carFuelOptionRepository,
+      CarTransmissionOptionRepository carTransmissionOptionRepository,
       ProductVehicleSpecRepository vehicleSpecRepository,
       CatalogService catalogService,
       OrderService orderService,
@@ -132,10 +149,9 @@ public class AdminApiService {
       NotificationService notificationService,
       ProductExcelParser productExcelParser) {
     this.adminUserRepository = adminUserRepository;
-    this.passwordEncoder = passwordEncoder;
-    this.adminSessionService = adminSessionService;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
+    this.addressRepository = addressRepository;
     this.orderRepository = orderRepository;
     this.categoryRepository = categoryRepository;
     this.orderLineRepository = orderLineRepository;
@@ -145,6 +161,8 @@ public class AdminApiService {
     this.fitmentLabelRepository = fitmentLabelRepository;
     this.fitmentCarRepository = fitmentCarRepository;
     this.carModelRepository = carModelRepository;
+    this.carFuelOptionRepository = carFuelOptionRepository;
+    this.carTransmissionOptionRepository = carTransmissionOptionRepository;
     this.vehicleSpecRepository = vehicleSpecRepository;
     this.catalogService = catalogService;
     this.orderService = orderService;
@@ -154,29 +172,6 @@ public class AdminApiService {
     this.userAvatarService = userAvatarService;
     this.notificationService = notificationService;
     this.productExcelParser = productExcelParser;
-  }
-
-  @Transactional
-  public String loginAndCreateSession(String email, String password) {
-    var admin =
-        adminUserRepository
-            .findByEmailIgnoreCase(email)
-            .orElseThrow(
-                () -> new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_FAILED", "Invalid credentials"));
-    if (!passwordEncoder.matches(password, admin.getPasswordHash())) {
-      throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_FAILED", "Invalid credentials");
-    }
-    admin.setLastLoginAt(Instant.now());
-    adminUserRepository.save(admin);
-    notificationService.notifyAdminEmail(
-        admin.getEmail(),
-        "auth_security",
-        "Admin login",
-        "You logged into admin dashboard.",
-        "admin_auth",
-        admin.getId().toString(),
-        Map.of("email", admin.getEmail()));
-    return adminSessionService.createSession(admin.getEmail());
   }
 
   @Transactional(readOnly = true)
@@ -320,6 +315,158 @@ public class AdminApiService {
         "avatarUrl",
         userAvatarService.hasAvatar(u.getId()) ? userAvatarService.publicAvatarUrl(u.getId()) : "");
     return Map.of("user", um, "profile", prof);
+  }
+
+  private static final int PROFILE_RECENT_ORDERS_LIMIT = 50;
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> getUserProfile(String userId) {
+    requireAdminAccess();
+    UUID id = UUID.fromString(userId);
+    UserEntity u =
+        userRepository
+            .findById(id)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "User not found"));
+    UserProfile profile = userProfileRepository.findById(id).orElse(null);
+
+    Map<String, Object> user = new LinkedHashMap<>();
+    user.put("id", u.getId().toString());
+    user.put("phone", u.getPhoneE164());
+    user.put(
+        "name",
+        profile != null && profile.getFullName() != null && !profile.getFullName().isBlank()
+            ? profile.getFullName().trim()
+            : u.getDisplayName());
+    user.put("email", profile != null ? profile.getEmail() : null);
+    user.put("role", u.getRole() != null ? u.getRole() : "user");
+    user.put(
+        "avatarUrl",
+        userAvatarService.hasAvatar(u.getId()) ? userAvatarService.publicAvatarUrl(u.getId()) : "");
+
+    List<Map<String, Object>> addresses =
+        addressRepository.findByUser_IdAndDeletedAtIsNullOrderByCreatedAtDesc(id).stream()
+            .map(this::toAddressMap)
+            .toList();
+
+    Map<String, Object> orderCounts = buildCustomerOrderCounts(id);
+    List<Map<String, Object>> recentOrders =
+        orderRepository
+            .findByUser_IdOrderByPlacedAtDesc(
+                id, PageRequest.of(0, PROFILE_RECENT_ORDERS_LIMIT, Sort.by("placedAt").descending()))
+            .getContent()
+            .stream()
+            .map(o -> toCustomerProfileOrderRow(o, orderLineRepository.findByOrder_Id(o.getId())))
+            .toList();
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("user", user);
+    body.put("addresses", addresses);
+    body.put("orderCounts", orderCounts);
+    body.put("recentOrders", recentOrders);
+    return body;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> getEmployeeProfile(String phone) {
+    requireSuperAdmin();
+    AdminUser employee = requireWorkforceEmployee(phone);
+    Map<String, Object> orderCounts = buildEmployeeDeliveryCounts(employee.getEmail());
+    List<Map<String, Object>> recentOrders =
+        orderRepository
+            .findByAssignedDeliveryAdminEmailIgnoreCaseOrderByPlacedAtDesc(
+                employee.getEmail(),
+                PageRequest.of(0, PROFILE_RECENT_ORDERS_LIMIT, Sort.by("placedAt").descending()))
+            .getContent()
+            .stream()
+            .map(
+                o ->
+                    toEmployeeProfileOrderRow(
+                        o,
+                        orderLineRepository.findByOrder_Id(o.getId()),
+                        userProfileRepository
+                            .findById(o.getUser().getId())
+                            .orElse(null),
+                        o.getUser()))
+            .toList();
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("employee", toEmployeeMap(employee));
+    body.put("deliveryCounts", orderCounts);
+    body.put("recentOrders", recentOrders);
+    return body;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> getEmployeeDeliveryOrders(
+      String employeeId,
+      String fromDate,
+      String toDate,
+      String search,
+      int page,
+      int size) {
+    requireSuperAdmin();
+    AdminUser employee = requireWorkforceEmployeeByPathId(employeeId);
+    String email = employee.getEmail();
+    EmployeeDeliveryDateRange range = parseEmployeeDeliveryDateRange(fromDate, toDate);
+
+    long assignedCount =
+        orderRepository.countAssignedOrdersPlacedBetweenWithStatuses(
+            email, range.startInclusive(), range.endExclusive(), EMPLOYEE_ASSIGNED_PIPELINE_STATUSES);
+    long shippedCount =
+        orderRepository.countAssignedOrdersPlacedBetweenWithStatuses(
+            email, range.startInclusive(), range.endExclusive(), List.of(OrderStatus.shipped));
+    long deliveredCount =
+        orderRepository.countAssignedOrdersPlacedBetweenWithStatuses(
+            email, range.startInclusive(), range.endExclusive(), List.of(OrderStatus.delivered));
+    long totalForRate =
+        orderRepository.countAssignedOrdersPlacedBetweenWithStatuses(
+            email, range.startInclusive(), range.endExclusive(), EMPLOYEE_DELIVERY_PAGE_STATUSES);
+    double deliverySuccessRate =
+        totalForRate > 0 ? Math.round((deliveredCount * 1000.0) / totalForRate) / 10.0 : 0.0;
+
+    String searchPat = normalizeEmployeeOrderSearchPattern(search);
+
+    Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, Math.min(50, size)));
+    Page<OrderEntity> result =
+        orderRepository.findEmployeeAssignedOrdersPlacedBetween(
+            email,
+            range.startInclusive(),
+            range.endExclusive(),
+            EMPLOYEE_DELIVERY_PAGE_STATUSES,
+            searchPat,
+            pageable);
+
+    List<String> ids = result.getContent().stream().map(OrderEntity::getId).toList();
+    Map<String, Instant> deliveredAtByOrderId = loadFirstDeliveredAtByOrderIds(ids);
+
+    List<Map<String, Object>> orders = new ArrayList<>();
+    for (OrderEntity o : result.getContent()) {
+      UserEntity customer = o.getUser();
+      UserProfile profile = userProfileRepository.findById(customer.getId()).orElse(null);
+      orders.add(
+          toEmployeeDeliveryOrderAdminRow(
+              o,
+              orderLineRepository.findByOrder_Id(o.getId()),
+              profile,
+              customer,
+              deliveredAtByOrderId.get(o.getId())));
+    }
+
+    Map<String, Object> summary = new LinkedHashMap<>();
+    summary.put("assignedCount", assignedCount);
+    summary.put("shippedCount", shippedCount);
+    summary.put("deliveredCount", deliveredCount);
+    summary.put("deliverySuccessRate", deliverySuccessRate);
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("summary", summary);
+    body.put("orders", orders);
+    body.put("page", result.getNumber());
+    body.put("size", result.getSize());
+    body.put("totalElements", result.getTotalElements());
+    body.put("totalPages", result.getTotalPages());
+    body.put("hasNext", result.hasNext());
+    return body;
   }
 
   @Transactional(readOnly = true)
@@ -913,8 +1060,8 @@ public class AdminApiService {
             .findById(orderId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
     boolean alreadyAssignedToOrder = email.equalsIgnoreCase(order.getAssignedDeliveryAdminEmail());
-    if (!alreadyAssignedToOrder && !"free".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery admin is not free");
+    if (!alreadyAssignedToOrder && !"online".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery admin is not online");
     }
     order.setAssignedDeliveryAdminEmail(email);
     order.setAssignedDeliveryAt(Instant.now());
@@ -961,7 +1108,8 @@ public class AdminApiService {
   /**
    * Lowercase {@code admin_users.email} for in-app admin notifications (list / mark-read / push keys).
    * Matches {@link NotificationService#notifyAdminEmail} and uses the same operator resolution as
-   * {@link #resolveCurrentAdminUser()} (admin session cookie, email principal, UUID→phone).
+   * {@link #resolveCurrentAdminUser()} (Bearer JWT subject = user UUID, linked by {@code users.phone_e164}
+   * to {@code admin_users.phone_e164} after phone OTP sign-in).
    */
   @Transactional(readOnly = true)
   public String currentAdminNotificationRecipientId() {
@@ -1028,67 +1176,129 @@ public class AdminApiService {
         .toList();
   }
 
+  private static final List<String> WORKFORCE_ROLES = List.of("sales", "delivery");
+
   @Transactional(readOnly = true)
   public List<Map<String, Object>> listEmployees() {
-    return adminUserRepository.findAll().stream()
-        .sorted(Comparator.comparing(a -> String.valueOf(a.getPhoneE164())))
+    requireSuperAdmin();
+    return adminUserRepository.findByRoleIn(WORKFORCE_ROLES, Sort.by("phoneE164").ascending()).stream()
         .map(this::toEmployeeMap)
         .toList();
   }
 
   @Transactional(readOnly = true)
+  public Map<String, Object> getEmployeesSummary() {
+    requireSuperAdmin();
+    long total = adminUserRepository.countByRoleIn(WORKFORCE_ROLES);
+    long active = adminUserRepository.countByRoleInAndOnboardingStatus(WORKFORCE_ROLES, "success");
+    long inactive = adminUserRepository.countByRoleInAndOnboardingStatus(WORKFORCE_ROLES, "pending");
+    Instant monthStart =
+        YearMonth.now(ZoneOffset.UTC).atDay(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+    long joinedThisMonth =
+        adminUserRepository.countByRoleInAndCreatedAtGreaterThanEqual(WORKFORCE_ROLES, monthStart);
+    Map<String, Object> summary = new LinkedHashMap<>();
+    summary.put("total", total);
+    summary.put("active", active);
+    summary.put("inactive", inactive);
+    summary.put("joinedThisMonth", joinedThisMonth);
+    return summary;
+  }
+
+  @Transactional(readOnly = true)
   public Map<String, Object> listEmployeesPage(int page, int size) {
+    requireSuperAdmin();
     Pageable pageable =
-        PageRequest.of(Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("phoneE164").ascending());
-    Page<AdminUser> result = adminUserRepository.findAll(pageable);
+        PageRequest.of(
+            Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("createdAt").descending());
+    Page<AdminUser> result = adminUserRepository.findByRoleIn(WORKFORCE_ROLES, pageable);
     List<Map<String, Object>> items = result.getContent().stream().map(this::toEmployeeMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
   }
 
+  @Transactional(readOnly = true)
+  public Map<String, Object> getEmployee(String phone) {
+    requireSuperAdmin();
+    return Map.of("employee", toEmployeeMap(requireWorkforceEmployee(phone)));
+  }
+
   @Transactional
   public Map<String, Object> createEmployee(Map<String, Object> body) {
-    String phone = normalizePhoneKey(String.valueOf(body.getOrDefault("phone", "")));
-    String roleRaw = String.valueOf(body.getOrDefault("role", "sales"));
-    UserRole role = UserRole.from(roleRaw);
-    if (phone.isBlank()) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone required");
-    }
-    if (phone.length() != 10) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone must be 10 digits");
-    }
-    if (!(role == UserRole.sales || role == UserRole.delivery || role == UserRole.super_admin)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "invalid employee role");
-    }
+    requireSuperAdmin();
+    String phone = parseEmployeePhone(body.get("phone"));
+    UserRole role = parseWorkforceRole(body.get("role"));
+    String name = parseEmployeeName(body.get("name"));
     if (adminUserRepository.findByPhoneE164(phone).isPresent()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
     }
-    String syntheticEmail = "emp_" + phone + "@carnalysys.local";
     AdminUser a = new AdminUser();
-    a.setEmail(syntheticEmail);
-    a.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
+    a.setEmail(workforceEmail(phone));
     a.setPhoneE164(phone);
     a.setRole(role.name());
-    a.setFullName(strOrNull(body.get("name")));
-    String photoDataUrl = strOrNull(body.get("photo"));
-    a.setPhotoUrl(
-        photoDataUrl != null && !photoDataUrl.isBlank()
-            ? uploadStorageService.persistVehicleImageIfDataUrl("employees", photoDataUrl)
-            : null);
+    a.setFullName(name);
+    applyEmployeePhoto(a, body);
     a.setOnboardingStatus("pending");
-    a.setAvailabilityStatus(role == UserRole.delivery ? "free" : "busy");
+    a.setAvailabilityStatus(role == UserRole.delivery ? "online" : "busy");
     adminUserRepository.save(a);
     return Map.of("employee", toEmployeeMap(a));
   }
 
   @Transactional
+  public Map<String, Object> updateEmployee(String phone, Map<String, Object> body) {
+    requireSuperAdmin();
+    AdminUser employee = requireWorkforceEmployee(phone);
+    String newPhone = parseEmployeePhone(body.get("phone"));
+    UserRole role = parseWorkforceRole(body.get("role"));
+    String name = parseEmployeeName(body.get("name"));
+    if (!newPhone.equals(employee.getPhoneE164())
+        && adminUserRepository.findByPhoneE164(newPhone).isPresent()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
+    }
+    String previousRole = employee.getRole();
+    String oldEmail = employee.getEmail();
+    String newEmail = workforceEmail(newPhone);
+    employee.setPhoneE164(newPhone);
+    employee.setEmail(newEmail);
+    employee.setRole(role.name());
+    employee.setFullName(name);
+    applyEmployeePhoto(employee, body);
+    if (role == UserRole.delivery && !"delivery".equalsIgnoreCase(previousRole)) {
+      employee.setAvailabilityStatus("online");
+    } else if (role == UserRole.sales && "delivery".equalsIgnoreCase(previousRole)) {
+      employee.setAvailabilityStatus("busy");
+    }
+    adminUserRepository.save(employee);
+    if (oldEmail != null && !oldEmail.equalsIgnoreCase(newEmail)) {
+      reassignDeliveryOrdersEmail(oldEmail, newEmail);
+    }
+    return Map.of("employee", toEmployeeMap(employee));
+  }
+
+  @Transactional
+  public Map<String, Object> deleteEmployee(String phone) {
+    requireSuperAdmin();
+    AdminUser employee = requireWorkforceEmployee(phone);
+    AdminUser current = resolveCurrentAdminUser();
+    if (employee.getId().equals(current.getId())
+        || (employee.getPhoneE164() != null
+            && employee.getPhoneE164().equals(current.getPhoneE164()))) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Cannot delete your own admin account");
+    }
+    clearDeliveryAssignments(employee.getEmail());
+    adminUserRepository.delete(employee);
+    return Map.of("removed", employee.getPhoneE164());
+  }
+
+  @Transactional
   public Map<String, Object> setEmployeeAvailability(String phone, String availability) {
+    requireSuperAdmin();
     String normalizedPhone = normalizePhoneKey(phone);
     String value = availability == null ? "" : availability.trim().toLowerCase();
     if (normalizedPhone.length() != 10) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone must be 10 digits");
     }
-    if (!(value.equals("free") || value.equals("busy") || value.equals("offline"))) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be free/busy/offline");
+    if (!(value.equals("online") || value.equals("busy") || value.equals("offline"))) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be online/busy/offline");
     }
     AdminUser a =
         adminUserRepository
@@ -1110,11 +1320,11 @@ public class AdminApiService {
   @Transactional
   public Map<String, Object> setCurrentDeliveryAvailability(String availability) {
     String value = availability == null ? "" : availability.trim().toLowerCase();
-    if (!("offline".equals(value) || "free".equals(value))) {
+    if (!("offline".equals(value) || "online".equals(value))) {
       throw new ApiException(
           HttpStatus.BAD_REQUEST,
           "VALIDATION_ERROR",
-          "availability must be free or offline");
+          "availability must be online or offline");
     }
     AdminUser current = resolveCurrentAdminUser();
     if (!"delivery".equalsIgnoreCase(current.getRole())) {
@@ -1190,6 +1400,19 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
+  public Map<String, Object> listCarFormOptionCatalog() {
+    List<Map<String, String>> fuels =
+        carFuelOptionRepository.findAllByOrderBySortOrderAscLabelAsc().stream()
+            .map(o -> Map.of("label", o.getLabel()))
+            .toList();
+    List<Map<String, String>> transmissions =
+        carTransmissionOptionRepository.findAllByOrderBySortOrderAscLabelAsc().stream()
+            .map(o -> Map.of("label", o.getLabel()))
+            .toList();
+    return Map.of("fuels", fuels, "transmissions", transmissions);
+  }
+
+  @Transactional(readOnly = true)
   public Map<String, Object> getCarAdmin(String id) {
     CarModelEntity c =
         carModelRepository
@@ -1199,34 +1422,204 @@ public class AdminApiService {
   }
 
   @Transactional
-  public Map<String, Object> upsertCar(String idOrNull, Map<String, Object> body) {
-    String make = strOrNull(body.containsKey("brandName") ? body.get("brandName") : body.get("make"));
-    String model = strOrNull(body.get("model"));
-    if (make == null || make.isBlank() || model == null || model.isBlank()) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "make and model required");
+  public Map<String, Object> createCar(Map<String, Object> body) {
+    CarDraft draft = parseCarDraft(body);
+    assertNoDuplicateCarIdentity(draft, null);
+
+    String slugId = buildCarSlugId(draft);
+    if (carModelRepository.findById(slugId).isPresent()) {
+      throw duplicateCarIdentityException();
     }
-    String id =
-        idOrNull != null && !idOrNull.isBlank()
-            ? idOrNull
-            : (body.get("id") != null && !String.valueOf(body.get("id")).isBlank()
-                ? String.valueOf(body.get("id"))
-                : SlugUtil.slug(make + " " + model + " " + String.valueOf(body.getOrDefault("modelYear", ""))));
-    CarModelEntity c = carModelRepository.findById(id).orElseGet(CarModelEntity::new);
-    c.setId(id);
-    c.setMake(make.trim());
-    c.setModel(model.trim());
-    c.setVariant(strOrNull(body.get("variant")));
-    Integer modelYear = intFrom(body.get("modelYear"), (Integer) null);
-    c.setModelYear(modelYear != null ? modelYear.shortValue() : null);
-    c.setFuel(strOrNull(body.get("fuel")));
-    c.setTransmission(strOrNull(body.get("transmission")));
-    c.setEngineCc(intFrom(body.get("engineCc"), (Integer) null));
-    c.setImageUrl(strOrNull(body.get("image")));
-    c.setBrandLogoUrl(strOrNull(body.get("brandLogo")));
-    c.setNotes(strOrNull(body.get("notes")));
-    if (body.containsKey("published")) c.setPublished(Boolean.TRUE.equals(body.get("published")));
+    CarModelEntity c = new CarModelEntity();
+    c.setId(slugId);
+    applyCarDraft(c, draft);
+    if (body.containsKey("image")) {
+      c.setImageUrl(strOrNull(body.get("image")));
+    }
+    if (body.containsKey("brandLogo")) {
+      c.setBrandLogoUrl(strOrNull(body.get("brandLogo")));
+    }
+    if (draft.published() == null) {
+      c.setPublished(true);
+    }
     carModelRepository.save(c);
     return Map.of("car", toCarMap(c));
+  }
+
+  @Transactional
+  public Map<String, Object> updateCar(String id, Map<String, Object> body) {
+    if (id == null || id.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "car id required");
+    }
+    CarModelEntity c =
+        carModelRepository
+            .findById(id.trim())
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Car not found"));
+    CarDraft draft = parseCarDraft(body);
+    assertNoDuplicateCarIdentity(draft, c.getId());
+    applyCarDraft(c, draft);
+    if (body.containsKey("image")) {
+      c.setImageUrl(strOrNull(body.get("image")));
+    }
+    if (body.containsKey("brandLogo")) {
+      c.setBrandLogoUrl(strOrNull(body.get("brandLogo")));
+    }
+    carModelRepository.save(c);
+    return Map.of("car", toCarMap(c));
+  }
+
+  private record CarDraft(
+      String make,
+      String model,
+      Short modelYear,
+      String variant,
+      String fuel,
+      String transmission,
+      Integer engineCc,
+      String notes,
+      Boolean published) {}
+
+  private CarDraft parseCarDraft(Map<String, Object> body) {
+    String make =
+        CarIdentityNormalizer.normalizeDisplayText(
+            strOrNull(body.containsKey("brandName") ? body.get("brandName") : body.get("make")));
+    String model = CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("model")));
+    if (make == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "make is required");
+    }
+    if (model == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "model is required");
+    }
+    String variant = CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("variant")));
+    if (variant == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "variant is required");
+    }
+    String fuelInput = CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("fuel")));
+    if (fuelInput == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "fuel is required");
+    }
+    String fuel =
+        carFuelOptionRepository
+            .findByLabelIgnoreCase(fuelInput)
+            .map(CarFuelOption::getLabel)
+            .orElseThrow(
+                () ->
+                    new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_ERROR",
+                        "fuel must match a catalog value (see GET /api/v1/admin/cars/form-options)"));
+    String transmissionInput =
+        CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("transmission")));
+    String transmission = null;
+    if (transmissionInput != null) {
+      transmission =
+          carTransmissionOptionRepository
+              .findByLabelIgnoreCase(transmissionInput)
+              .map(CarTransmissionOption::getLabel)
+              .orElseThrow(
+                  () ->
+                      new ApiException(
+                          HttpStatus.BAD_REQUEST,
+                          "VALIDATION_ERROR",
+                          "transmission must match a catalog value or be omitted (see GET /api/v1/admin/cars/form-options)"));
+    }
+    Short modelYear = parseCarModelYear(body.get("modelYear"));
+    return new CarDraft(
+        make,
+        model,
+        modelYear,
+        variant,
+        fuel,
+        transmission,
+        intFrom(body.get("engineCc"), (Integer) null),
+        strOrNull(body.get("notes")),
+        body.containsKey("published") ? Boolean.TRUE.equals(body.get("published")) : null);
+  }
+
+  /** Required positive whole number; fits {@link CarModelEntity} {@code SMALLINT} column. */
+  private static Short parseCarModelYear(Object raw) {
+    if (raw == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "modelYear is required");
+    }
+    if (raw instanceof String s && s.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "modelYear is required");
+    }
+    Integer year = null;
+    if (raw instanceof Number n) {
+      double d = n.doubleValue();
+      if (d % 1 == 0 && d >= 1 && d <= Short.MAX_VALUE) {
+        year = (int) d;
+      }
+    } else {
+      String s = String.valueOf(raw).trim();
+      if (s.matches("\\d+")) {
+        try {
+          long parsed = Long.parseLong(s);
+          if (parsed >= 1 && parsed <= Short.MAX_VALUE) {
+            year = (int) parsed;
+          }
+        } catch (NumberFormatException ignored) {
+          // fall through to invalid
+        }
+      }
+    }
+    if (year == null) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "modelYear must be a positive whole number");
+    }
+    return year.shortValue();
+  }
+
+  private static String buildCarSlugId(CarDraft draft) {
+    return SlugUtil.slug(
+        draft.make()
+            + " "
+            + draft.model()
+            + " "
+            + (draft.modelYear() != null ? draft.modelYear() : "")
+            + " "
+            + (draft.variant() != null ? draft.variant() : "")
+            + " "
+            + (draft.fuel() != null ? draft.fuel() : ""));
+  }
+
+  private void assertNoDuplicateCarIdentity(CarDraft draft, String excludeId) {
+    CarIdentityNormalizer.IdentityKeys keys =
+        CarIdentityNormalizer.keys(draft.make(), draft.model(), draft.variant(), draft.fuel());
+    if (carModelRepository
+        .findIdentityMatch(
+            keys.make(),
+            keys.model(),
+            draft.modelYear(),
+            keys.variant(),
+            keys.fuel(),
+            excludeId)
+        .isPresent()) {
+      throw duplicateCarIdentityException();
+    }
+  }
+
+  private static ApiException duplicateCarIdentityException() {
+    return new ApiException(
+        HttpStatus.BAD_REQUEST,
+        "VALIDATION_ERROR",
+        "A car with this make, model, year, variant, and fuel already exists");
+  }
+
+  private void applyCarDraft(CarModelEntity c, CarDraft draft) {
+    c.setMake(draft.make());
+    c.setModel(draft.model());
+    c.setVariant(draft.variant());
+    c.setModelYear(draft.modelYear());
+    c.setFuel(draft.fuel());
+    c.setTransmission(draft.transmission());
+    c.setEngineCc(draft.engineCc());
+    if (draft.notes() != null) {
+      c.setNotes(draft.notes());
+    }
+    if (draft.published() != null) {
+      c.setPublished(draft.published());
+    }
   }
 
   @Transactional
@@ -1235,9 +1628,7 @@ public class AdminApiService {
         carModelRepository
             .findById(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Car not found"));
-    c.setDeletedAt(Instant.now());
-    c.setPublished(false);
-    carModelRepository.save(c);
+    carModelRepository.delete(c);
     return Map.of("removed", id);
   }
 
@@ -1295,6 +1686,7 @@ public class AdminApiService {
     m.put("lastLoginAt", a.getLastLoginAt() != null ? a.getLastLoginAt().toString() : null);
     m.put("lastLogoutAt", a.getLastLogoutAt() != null ? a.getLastLogoutAt().toString() : null);
     m.put("firstLoginAt", a.getFirstLoginAt() != null ? a.getFirstLoginAt().toString() : null);
+    m.put("createdAt", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
     return m;
   }
 
@@ -1310,6 +1702,293 @@ public class AdminApiService {
     return m;
   }
 
+  private void requireAdminAccess() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null
+        || auth.getAuthorities().stream().noneMatch(g -> "ROLE_ADMIN".equals(g.getAuthority()))) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Admin access required");
+    }
+  }
+
+  private Map<String, Object> buildCustomerOrderCounts(UUID userId) {
+    Map<String, Object> counts = new LinkedHashMap<>();
+    counts.put("total", orderRepository.countByUser_Id(userId));
+    counts.put("placed", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.placed));
+    counts.put("processing", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.processing));
+    counts.put("shipped", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.shipped));
+    counts.put("delivered", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.delivered));
+    counts.put("cancelled", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.cancelled));
+    counts.put("refunded", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.refunded));
+    return counts;
+  }
+
+  private Map<String, Object> buildEmployeeDeliveryCounts(String email) {
+    if (email == null || email.isBlank()) {
+      return Map.of("assigned", 0L, "shipped", 0L, "delivered", 0L);
+    }
+    long assigned =
+        orderRepository.countByAssignedDeliveryAdminEmailIgnoreCaseAndStatusIn(
+            email,
+            List.of(
+                OrderStatus.placed,
+                OrderStatus.confirmed,
+                OrderStatus.processing,
+                OrderStatus.shipped));
+    long shipped =
+        orderRepository.countByAssignedDeliveryAdminEmailIgnoreCaseAndStatus(
+            email, OrderStatus.shipped);
+    long delivered =
+        orderRepository.countByAssignedDeliveryAdminEmailIgnoreCaseAndStatus(
+            email, OrderStatus.delivered);
+    Map<String, Object> counts = new LinkedHashMap<>();
+    counts.put("assigned", assigned);
+    counts.put("shipped", shipped);
+    counts.put("delivered", delivered);
+    return counts;
+  }
+
+  private Map<String, Object> toAddressMap(com.carnalysys.domain.AddressEntity a) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", a.getId().toString());
+    m.put("line1", a.getLine1());
+    m.put("line2", a.getLine2());
+    m.put("city", a.getCity());
+    m.put("state", a.getState());
+    m.put("pincode", a.getPincode());
+    m.put("country", a.getCountry());
+    m.put("label", a.getLabel());
+    m.put("isDefault", a.isDefaultAddress());
+    return m;
+  }
+
+  private Map<String, Object> toCustomerProfileOrderRow(
+      OrderEntity o, List<com.carnalysys.domain.OrderLine> lines) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", o.getId());
+    m.put("date", o.getPlacedAt() != null ? o.getPlacedAt().toString() : null);
+    m.put("amount", orderTotalInr(lines, o.getTotalInr()));
+    m.put("status", o.getStatus() != null ? o.getStatus().name() : null);
+    return m;
+  }
+
+  private Map<String, Object> toEmployeeProfileOrderRow(
+      OrderEntity o,
+      List<com.carnalysys.domain.OrderLine> lines,
+      UserProfile profile,
+      UserEntity customer) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", o.getId());
+    String customerName =
+        profile != null && profile.getFullName() != null && !profile.getFullName().isBlank()
+            ? profile.getFullName().trim()
+            : customer.getDisplayName();
+    m.put("customerName", customerName);
+    m.put("date", o.getPlacedAt() != null ? o.getPlacedAt().toString() : null);
+    m.put("amount", orderTotalInr(lines, o.getTotalInr()));
+    m.put("status", o.getStatus() != null ? o.getStatus().name() : null);
+    return m;
+  }
+
+  private Map<String, Object> toEmployeeDeliveryOrderAdminRow(
+      OrderEntity o,
+      List<com.carnalysys.domain.OrderLine> lines,
+      UserProfile profile,
+      UserEntity customer,
+      Instant deliveredAt) {
+    Map<String, Object> src = toEmployeeProfileOrderRow(o, lines, profile, customer);
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("orderId", src.get("id"));
+    m.put("customerName", src.get("customerName"));
+    m.put("orderDate", src.get("date"));
+    m.put("amount", src.get("amount"));
+    m.put("status", src.get("status"));
+    m.put("deliveredDate", deliveredAt != null ? deliveredAt.toString() : null);
+    return m;
+  }
+
+  private Map<String, Instant> loadFirstDeliveredAtByOrderIds(List<String> orderIds) {
+    if (orderIds == null || orderIds.isEmpty()) {
+      return Map.of();
+    }
+    List<Object[]> rows = orderStatusAuditRepository.findFirstDeliveredAtByOrderIdIn(orderIds);
+    Map<String, Instant> m = new HashMap<>();
+    for (Object[] row : rows) {
+      if (row[0] != null && row[1] != null) {
+        m.put(String.valueOf(row[0]), (Instant) row[1]);
+      }
+    }
+    return m;
+  }
+
+  private static String normalizeEmployeeOrderSearchPattern(String search) {
+    String q = search == null ? "" : search.trim().toLowerCase();
+    if (q.isEmpty()) {
+      return "%";
+    }
+    return "%" + q + "%";
+  }
+
+  private record EmployeeDeliveryDateRange(Instant startInclusive, Instant endExclusive) {}
+
+  private EmployeeDeliveryDateRange parseEmployeeDeliveryDateRange(String fromDate, String toDate) {
+    String from = fromDate != null ? fromDate.trim() : "";
+    String to = toDate != null ? toDate.trim() : "";
+    if (from.isEmpty() && to.isEmpty()) {
+      YearMonth ym = YearMonth.now(ZoneOffset.UTC);
+      Instant start = ym.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+      Instant end = ym.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+      return new EmployeeDeliveryDateRange(start, end);
+    }
+    if (from.isEmpty() || to.isEmpty()) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "fromDate and toDate are required together");
+    }
+    LocalDate fromD;
+    LocalDate toD;
+    try {
+      fromD = LocalDate.parse(from, EMPLOYEE_DELIVERY_ISO_DATE);
+      toD = LocalDate.parse(to, EMPLOYEE_DELIVERY_ISO_DATE);
+    } catch (java.time.format.DateTimeParseException ex) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "fromDate and toDate must be YYYY-MM-DD");
+    }
+    if (toD.isBefore(fromD)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "toDate must be on or after fromDate");
+    }
+    Instant start = fromD.atStartOfDay(ZoneOffset.UTC).toInstant();
+    Instant end = toD.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    return new EmployeeDeliveryDateRange(start, end);
+  }
+
+  private static long orderTotalInr(List<com.carnalysys.domain.OrderLine> lines, BigDecimal orderTotal) {
+    if (lines != null && !lines.isEmpty()) {
+      long sum = 0;
+      for (var line : lines) {
+        if (line.getLineTotalInr() != null) {
+          sum += line.getLineTotalInr().setScale(0, java.math.RoundingMode.DOWN).longValue();
+        }
+      }
+      if (sum > 0) {
+        return sum;
+      }
+    }
+    return orderTotal != null ? orderTotal.setScale(0, java.math.RoundingMode.DOWN).longValue() : 0L;
+  }
+
+  private void requireSuperAdmin() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null
+        || auth.getAuthorities().stream()
+            .noneMatch(g -> "ROLE_SUPER_ADMIN".equals(g.getAuthority()))) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Super admin access required");
+    }
+  }
+
+  private static boolean isWorkforceRole(String role) {
+    if (role == null) {
+      return false;
+    }
+    String r = role.trim().toLowerCase();
+    return "sales".equals(r) || "delivery".equals(r);
+  }
+
+  private AdminUser requireWorkforceEmployeeByPathId(String employeeId) {
+    if (employeeId == null || employeeId.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "employeeId required");
+    }
+    String key = employeeId.trim();
+    try {
+      UUID id = UUID.fromString(key);
+      AdminUser u =
+          adminUserRepository
+              .findById(id)
+              .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found"));
+      if (!isWorkforceRole(u.getRole())) {
+        throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
+      }
+      return u;
+    } catch (IllegalArgumentException ex) {
+      return requireWorkforceEmployee(key);
+    }
+  }
+
+  private AdminUser requireWorkforceEmployee(String phone) {
+    String normalized = normalizePhoneKey(phone);
+    AdminUser employee =
+        adminUserRepository
+            .findByPhoneE164(normalized)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found"));
+    if (!isWorkforceRole(employee.getRole())) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
+    }
+    return employee;
+  }
+
+  private static String workforceEmail(String phone) {
+    return "emp_" + phone + "@carnalysys.local";
+  }
+
+  private static String parseEmployeePhone(Object raw) {
+    String phone = normalizePhoneKey(String.valueOf(raw == null ? "" : raw));
+    if (phone.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone required");
+    }
+    if (phone.length() != 10) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "phone must be 10 digits");
+    }
+    return phone;
+  }
+
+  private static UserRole parseWorkforceRole(Object raw) {
+    UserRole role = UserRole.from(String.valueOf(raw == null ? "" : raw));
+    if (role != UserRole.sales && role != UserRole.delivery) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "role must be sales or delivery");
+    }
+    return role;
+  }
+
+  private static String parseEmployeeName(Object raw) {
+    String name = raw == null ? "" : String.valueOf(raw).trim();
+    if (name.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "name required");
+    }
+    return name;
+  }
+
+  private void applyEmployeePhoto(AdminUser employee, Map<String, Object> body) {
+    if (!body.containsKey("photo")) {
+      return;
+    }
+    String photoDataUrl = strOrNull(body.get("photo"));
+    if (photoDataUrl == null || photoDataUrl.isBlank()) {
+      employee.setPhotoUrl(null);
+      return;
+    }
+    employee.setPhotoUrl(uploadStorageService.persistVehicleImageIfDataUrl("employees", photoDataUrl));
+  }
+
+  private void reassignDeliveryOrdersEmail(String oldEmail, String newEmail) {
+    if (oldEmail == null || oldEmail.isBlank() || oldEmail.equalsIgnoreCase(newEmail)) {
+      return;
+    }
+    for (OrderEntity order : orderRepository.findByAssignedDeliveryAdminEmailIgnoreCase(oldEmail)) {
+      order.setAssignedDeliveryAdminEmail(newEmail);
+      orderRepository.save(order);
+    }
+  }
+
+  private void clearDeliveryAssignments(String email) {
+    if (email == null || email.isBlank()) {
+      return;
+    }
+    for (OrderEntity order : orderRepository.findByAssignedDeliveryAdminEmailIgnoreCase(email)) {
+      order.setAssignedDeliveryAdminEmail(null);
+      order.setAssignedDeliveryAt(null);
+      orderRepository.save(order);
+    }
+  }
+
   private static String normalizePhoneKey(String phoneInput) {
     String digits = phoneInput == null ? "" : phoneInput.replaceAll("\\D", "");
     if (digits.startsWith("91") && digits.length() == 12) {
@@ -1321,85 +2000,29 @@ public class AdminApiService {
     return digits;
   }
 
-  /**
-   * Resolves the operator row in {@code admin_users}.
-   *
-   * <p>When the client sends both {@code Authorization: Bearer} (JWT subject = storefront user UUID)
-   * and a valid {@link AdminSessionService#COOKIE_NAME admin_session} cookie from email/password login,
-   * the JWT runs first in the filter chain and would otherwise force phone-based lookup only. Preferring
-   * the admin session email restores super_admin/sales resolution by email while keeping OTP employees
-   * on the UUID→phone path when no admin cookie is present.
-   */
+  /** Resolves {@code admin_users} for the authenticated storefront user (JWT subject = user UUID). */
   private AdminUser resolveCurrentAdminUser() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated()) {
       throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Not authenticated");
     }
 
-    Optional<String> cookieEmail = resolveAdminSessionEmailFromCookie();
-    if (cookieEmail.isPresent()) {
-      Optional<AdminUser> fromSession =
-          adminUserRepository.findByEmailIgnoreCase(cookieEmail.get());
-      if (fromSession.isPresent()) {
-        return fromSession.get();
-      }
-    }
-
-    String principal = String.valueOf(auth.getName()).trim();
-    if (principal.contains("@")) {
-      return adminUserRepository
-          .findByEmailIgnoreCase(principal)
-          .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Admin user not found"));
-    }
     try {
-      UUID userId = UUID.fromString(principal);
+      UUID userId = UUID.fromString(String.valueOf(auth.getName()).trim());
       UserEntity user =
           userRepository
               .findById(userId)
               .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "User not found"));
-      Optional<AdminUser> byPhone = adminUserRepository.findByPhoneE164(user.getPhoneE164());
-      if (byPhone.isPresent()) {
-        return byPhone.get();
-      }
-      Optional<AdminUser> byProfileEmail =
-          userProfileRepository
-              .findById(userId)
-              .flatMap(
-                  profile -> {
-                    String em = profile.getEmail();
-                    if (em == null || em.isBlank()) {
-                      return Optional.empty();
-                    }
-                    return adminUserRepository.findByEmailIgnoreCase(em.trim());
-                  });
-      if (byProfileEmail.isPresent()) {
-        return byProfileEmail.get();
-      }
-      throw new ApiException(
-          HttpStatus.NOT_FOUND,
-          "NOT_FOUND",
-          "Admin user not found for this session: use admin email login, or link this account’s phone"
-              + " to an admin employee, or set profile email to match your admin_users email.");
+      return adminUserRepository
+          .findByPhoneE164(user.getPhoneE164())
+          .orElseThrow(
+              () ->
+                  new ApiException(
+                      HttpStatus.NOT_FOUND,
+                      "NOT_FOUND",
+                      "No admin account is linked to this phone number"));
     } catch (IllegalArgumentException ex) {
       throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid principal");
-    }
-  }
-
-  /** Active admin login cookie → normalized email, if request context is available (skipped in async/unit tests). */
-  private Optional<String> resolveAdminSessionEmailFromCookie() {
-    try {
-      var attrs = RequestContextHolder.getRequestAttributes();
-      if (!(attrs instanceof ServletRequestAttributes servletAttrs)) {
-        return Optional.empty();
-      }
-      HttpServletRequest req = servletAttrs.getRequest();
-      var cookie = WebUtils.getCookie(req, AdminSessionService.COOKIE_NAME);
-      if (cookie == null || cookie.getValue() == null || cookie.getValue().isBlank()) {
-        return Optional.empty();
-      }
-      return adminSessionService.resolveSessionEmail(cookie.getValue());
-    } catch (IllegalStateException ex) {
-      return Optional.empty();
     }
   }
 

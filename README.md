@@ -61,3 +61,7 @@ CARNALYSYS_SERVER_ROOT=/your/path ./scripts/restart-backend-prod.sh
 - Backend reads external config from `config/application-prod.yml` (mounted inside container at `/app/config`).
 - After editing properties, run restart script and changes apply on next startup.
 - Keep `APP_JWT_SECRET` only in server `.env.prod` and keep JWT access tokens time-bounded.
+
+### Admin access
+
+Operators sign in through the storefront **phone + OTP** flow (`POST /api/v1/auth/send-otp`, `POST /api/v1/auth/verify-otp`). Admin APIs require `Authorization: Bearer <JWT>` when the verified phone matches `admin_users.phone_e164`. See `docs/API.md` for details. There is no email/password admin login.

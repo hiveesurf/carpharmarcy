@@ -43,6 +43,12 @@ API_BASE=http://127.0.0.1:8080/api/v1 ./scripts/smoke-test-apis.sh
 - Catalog: `GET /products`, `GET /products/:id`, `GET /categories`
 - Cart: `GET /cart`, `POST /cart`, `PUT /cart/:itemId`, `DELETE /cart/:itemId`
 - Orders: `POST /orders`, `GET /orders`, `GET /orders/:id`
-- Admin auth: `POST /admin/auth/login`
+- Admin access (phone + OTP, same as storefront):
+  1. `POST /auth/send-otp` with `{ "phone": "9876543210" }` (or your `admin_users.phone_e164`)
+  2. `POST /auth/verify-otp` with `{ "phone", "otp": "123456" }` (dev demo code) → copy `data.accessToken`
+  3. Call `/admin/**` with header `Authorization: Bearer <accessToken>`
+  4. Non-admin phones receive **403** on `/admin/**`
+
+There is no `POST /admin/auth/login` or `adminSession` cookie.
 
 All routes above are under `/api/v1`.

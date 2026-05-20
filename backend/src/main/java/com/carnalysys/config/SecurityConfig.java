@@ -1,10 +1,10 @@
 package com.carnalysys.config;
 
-import com.carnalysys.security.AdminSessionAuthenticationFilter;
-import com.carnalysys.security.AdminSessionService;
+import com.carnalysys.security.AdminAuthorizationFilter;
 import com.carnalysys.security.JwtAuthenticationFilter;
 import com.carnalysys.security.JwtService;
 import com.carnalysys.repo.AdminUserRepository;
+import com.carnalysys.repo.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,21 +30,20 @@ public class SecurityConfig {
   @Order(1)
   SecurityFilterChain adminChain(
       HttpSecurity http,
-      AdminSessionService adminSessionService,
       AdminUserRepository adminUserRepository,
+      UserRepository userRepository,
       ObjectMapper objectMapper,
       JwtAuthenticationFilter jwtAuthenticationFilter)
       throws Exception {
-    var adminFilter = new AdminSessionAuthenticationFilter(adminSessionService, objectMapper, adminUserRepository);
+    var adminFilter =
+        new AdminAuthorizationFilter(objectMapper, adminUserRepository, userRepository);
     return http.securityMatcher("/api/v1/admin/**")
         .csrf(AbstractHttpConfigurer::disable)
         .cors(Customizer.withDefaults())
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             a ->
-                a.requestMatchers("/api/v1/admin/auth/login", "/api/v1/admin/auth/logout")
-                    .permitAll()
-                    .requestMatchers("/api/v1/admin/delivery/me/availability")
+                a.requestMatchers("/api/v1/admin/delivery/me/availability")
                     .hasRole("DELIVERY")
                     .requestMatchers("/api/v1/admin/employees/**")
                     .hasRole("SUPER_ADMIN")

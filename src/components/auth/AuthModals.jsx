@@ -56,7 +56,7 @@ export function AuthModals() {
     else {
       reset()
       const role = resolveSessionRole(r.user, getAccessToken())
-      if (role === 'admin') {
+      if (['super_admin', 'sales', 'delivery', 'admin'].includes(role)) {
         navigate('/admin', { replace: true })
       }
     }

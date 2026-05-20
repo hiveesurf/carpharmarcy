@@ -16,7 +16,8 @@ public class AdminUser {
   @Column(nullable = false, unique = true)
   private String email;
 
-  @Column(name = "password_hash", nullable = false)
+  /** Legacy column; admin auth uses phone + OTP only. */
+  @Column(name = "password_hash")
   private String passwordHash;
 
   @Column(name = "phone_e164")
@@ -142,5 +143,21 @@ public class AdminUser {
 
   public void setFirstLoginAt(Instant firstLoginAt) {
     this.firstLoginAt = firstLoginAt;
+  }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(Instant createdAt) {
+    this.createdAt = createdAt;
+  }
+
+  public Instant getUpdatedAt() {
+    return updatedAt;
+  }
+
+  public void setUpdatedAt(Instant updatedAt) {
+    this.updatedAt = updatedAt;
   }
 }

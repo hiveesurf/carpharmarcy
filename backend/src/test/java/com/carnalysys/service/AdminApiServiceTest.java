@@ -14,8 +14,11 @@ import com.carnalysys.domain.OrderEntity;
 import com.carnalysys.domain.OrderStatus;
 import com.carnalysys.domain.UserEntity;
 import com.carnalysys.domain.UserProfile;
+import com.carnalysys.repo.AddressRepository;
 import com.carnalysys.repo.AdminUserRepository;
+import com.carnalysys.repo.CarFuelOptionRepository;
 import com.carnalysys.repo.CarModelRepository;
+import com.carnalysys.repo.CarTransmissionOptionRepository;
 import com.carnalysys.repo.CategoryRepository;
 import com.carnalysys.repo.OrderLineRepository;
 import com.carnalysys.repo.OrderRepository;
@@ -27,7 +30,6 @@ import com.carnalysys.repo.ProductRepository;
 import com.carnalysys.repo.ProductVehicleSpecRepository;
 import com.carnalysys.repo.UserProfileRepository;
 import com.carnalysys.repo.UserRepository;
-import com.carnalysys.security.AdminSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.Arrays;
@@ -45,16 +47,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-
 @ExtendWith(MockitoExtension.class)
 class AdminApiServiceTest {
 
   @Mock private AdminUserRepository adminUserRepository;
-  @Mock private PasswordEncoder passwordEncoder;
-  @Mock private AdminSessionService adminSessionService;
   @Mock private UserRepository userRepository;
   @Mock private UserProfileRepository userProfileRepository;
+  @Mock private AddressRepository addressRepository;
   @Mock private OrderRepository orderRepository;
   @Mock private CategoryRepository categoryRepository;
   @Mock private OrderLineRepository orderLineRepository;
@@ -64,6 +63,8 @@ class AdminApiServiceTest {
   @Mock private ProductFitmentLabelRepository fitmentLabelRepository;
   @Mock private ProductFitmentCarRepository fitmentCarRepository;
   @Mock private CarModelRepository carModelRepository;
+  @Mock private CarFuelOptionRepository carFuelOptionRepository;
+  @Mock private CarTransmissionOptionRepository carTransmissionOptionRepository;
   @Mock private ProductVehicleSpecRepository vehicleSpecRepository;
   @Mock private CatalogService catalogService;
   @Mock private OrderService orderService;
@@ -83,6 +84,13 @@ class AdminApiServiceTest {
 
   @Test
   void createEmployeeRejectsUnsupportedRole() {
+    SecurityContextHolder
+        .getContext()
+        .setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                "admin",
+                "n/a",
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
     assertThatThrownBy(
             () ->
                 adminApiService.createEmployee(
@@ -97,7 +105,7 @@ class AdminApiServiceTest {
   }
 
   @Test
-  void assignDeliveryRejectsWhenAssigneeNotFree() {
+  void assignDeliveryRejectsWhenAssigneeNotOnline() {
     AdminUser delivery = new AdminUser();
     delivery.setEmail("delivery@test.dev");
     delivery.setRole("delivery");
@@ -118,11 +126,11 @@ class AdminApiServiceTest {
   }
 
   @Test
-  void assignDeliveryUpdatesOrderWhenFreeDeliveryUserExists() {
+  void assignDeliveryUpdatesOrderWhenOnlineDeliveryUserExists() {
     AdminUser delivery = new AdminUser();
     delivery.setEmail("delivery@test.dev");
     delivery.setRole("delivery");
-    delivery.setAvailabilityStatus("free");
+    delivery.setAvailabilityStatus("online");
     OrderEntity order = new OrderEntity();
     order.setId("ord_1");
     when(adminUserRepository.findByEmailIgnoreCase("delivery@test.dev")).thenReturn(Optional.of(delivery));
@@ -138,17 +146,23 @@ class AdminApiServiceTest {
 
   @Test
   void listDeliveryOrdersForCurrentFiltersByAuthenticatedAdmin() {
+    UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440003");
     SecurityContextHolder
         .getContext()
         .setAuthentication(
             new UsernamePasswordAuthenticationToken(
-                "delivery@test.dev",
+                uid.toString(),
                 "n/a",
                 List.of(new SimpleGrantedAuthority("ROLE_DELIVERY"))));
+    UserEntity user = new UserEntity();
+    user.setId(uid);
+    user.setPhoneE164("8888888888");
+    when(userRepository.findById(uid)).thenReturn(Optional.of(user));
     AdminUser deliveryAdmin = new AdminUser();
     deliveryAdmin.setEmail("delivery@test.dev");
+    deliveryAdmin.setPhoneE164("8888888888");
     deliveryAdmin.setRole("delivery");
-    when(adminUserRepository.findByEmailIgnoreCase("delivery@test.dev")).thenReturn(Optional.of(deliveryAdmin));
+    when(adminUserRepository.findByPhoneE164("8888888888")).thenReturn(Optional.of(deliveryAdmin));
 
     OrderEntity ord = new OrderEntity();
     ord.setId("ord_1");
@@ -176,7 +190,14 @@ class AdminApiServiceTest {
 
   @Test
   void setEmployeeAvailabilityRejectsInvalidValue() {
-    assertThatThrownBy(() -> adminApiService.setEmployeeAvailability("+911234567890", "online"))
+    SecurityContextHolder
+        .getContext()
+        .setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                "admin",
+                "n/a",
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
+    assertThatThrownBy(() -> adminApiService.setEmployeeAvailability("+911234567890", "not-a-status"))
         .isInstanceOf(ApiException.class)
         .satisfies(
             ex -> {
@@ -188,32 +209,45 @@ class AdminApiServiceTest {
 
   @Test
   void setEmployeeAvailabilityUpdatesEmployee() {
+    SecurityContextHolder
+        .getContext()
+        .setAuthentication(
+            new UsernamePasswordAuthenticationToken(
+                "admin",
+                "n/a",
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
     AdminUser employee = new AdminUser();
     employee.setPhoneE164("+911234567890");
     employee.setRole("delivery");
     employee.setEmail("emp@test.dev");
     when(adminUserRepository.findByPhoneE164("1234567890")).thenReturn(Optional.of(employee));
 
-    Map<String, Object> result = adminApiService.setEmployeeAvailability("+911234567890", "free");
+    Map<String, Object> result = adminApiService.setEmployeeAvailability("+911234567890", "online");
 
     assertThat(result).containsKey("employee");
-    assertThat(employee.getAvailabilityStatus()).isEqualTo("free");
+    assertThat(employee.getAvailabilityStatus()).isEqualTo("online");
     verify(adminUserRepository).save(employee);
   }
 
   @Test
   void patchOrderStatusUsesDeliveryPathWhenAdminRoleIsDelivery() {
+    UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440001");
     SecurityContextHolder
         .getContext()
         .setAuthentication(
             new UsernamePasswordAuthenticationToken(
-                "dp@test.dev",
+                uid.toString(),
                 "n/a",
                 List.of(new SimpleGrantedAuthority("ROLE_DELIVERY"))));
+    UserEntity user = new UserEntity();
+    user.setId(uid);
+    user.setPhoneE164("8888888888");
+    when(userRepository.findById(uid)).thenReturn(Optional.of(user));
     AdminUser delivery = new AdminUser();
     delivery.setEmail("dp@test.dev");
+    delivery.setPhoneE164("8888888888");
     delivery.setRole("delivery");
-    when(adminUserRepository.findByEmailIgnoreCase("dp@test.dev")).thenReturn(Optional.of(delivery));
+    when(adminUserRepository.findByPhoneE164("8888888888")).thenReturn(Optional.of(delivery));
     when(orderService.patchStatusAsDeliveryPartner("ord_1", "delivered", "dp@test.dev"))
         .thenReturn(Map.of("order", Map.of("id", "ord_1", "status", "delivered")));
 
@@ -226,17 +260,23 @@ class AdminApiServiceTest {
 
   @Test
   void patchOrderStatusUsesAdminPathWhenRoleIsSuperAdmin() {
+    UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440002");
     SecurityContextHolder
         .getContext()
         .setAuthentication(
             new UsernamePasswordAuthenticationToken(
-                "sa@test.dev",
+                uid.toString(),
                 "n/a",
                 List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
+    UserEntity user = new UserEntity();
+    user.setId(uid);
+    user.setPhoneE164("7777777777");
+    when(userRepository.findById(uid)).thenReturn(Optional.of(user));
     AdminUser admin = new AdminUser();
     admin.setEmail("sa@test.dev");
+    admin.setPhoneE164("7777777777");
     admin.setRole("super_admin");
-    when(adminUserRepository.findByEmailIgnoreCase("sa@test.dev")).thenReturn(Optional.of(admin));
+    when(adminUserRepository.findByPhoneE164("7777777777")).thenReturn(Optional.of(admin));
     when(orderService.patchStatusAdmin("ord_1", "shipped")).thenReturn(Map.of("order", Map.of("id", "ord_1")));
 
     Map<String, Object> result = adminApiService.patchOrderStatus("ord_1", "shipped");
@@ -247,7 +287,7 @@ class AdminApiServiceTest {
   }
 
   @Test
-  void patchOrderStatusUsesAdminPathWhenPrincipalIsUuidAndProfileEmailMatchesAdmin() {
+  void patchOrderStatusUsesAdminPathWhenPrincipalIsUuidAndPhoneMatchesAdmin() {
     UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     SecurityContextHolder.getContext()
         .setAuthentication(
@@ -261,16 +301,12 @@ class AdminApiServiceTest {
     user.setPhoneE164("9999999999");
     user.setRole("super_admin");
     when(userRepository.findById(uid)).thenReturn(Optional.of(user));
-    when(adminUserRepository.findByPhoneE164("9999999999")).thenReturn(Optional.empty());
-
-    UserProfile profile = new UserProfile();
-    profile.setEmail("Ops@corp.test");
-    when(userProfileRepository.findById(uid)).thenReturn(Optional.of(profile));
 
     AdminUser admin = new AdminUser();
     admin.setEmail("ops@corp.test");
+    admin.setPhoneE164("9999999999");
     admin.setRole("super_admin");
-    when(adminUserRepository.findByEmailIgnoreCase("Ops@corp.test")).thenReturn(Optional.of(admin));
+    when(adminUserRepository.findByPhoneE164("9999999999")).thenReturn(Optional.of(admin));
     when(orderService.patchStatusAdmin("ord_1", "confirmed"))
         .thenReturn(Map.of("order", Map.of("id", "ord_1")));
 

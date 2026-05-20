@@ -1,20 +1,14 @@
 package com.carnalysys.web.v1;
 
 import com.carnalysys.api.ApiEnvelope;
-import com.carnalysys.config.AppProperties;
-import com.carnalysys.security.AdminSessionService;
 import com.carnalysys.service.AdminApiService;
 import com.carnalysys.service.NotificationService;
-import com.carnalysys.web.dto.AdminLoginRequest;
 import com.carnalysys.web.dto.ProductImportReport;
 import com.carnalysys.web.support.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import java.util.Map;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,57 +22,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.util.WebUtils;
-
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminV1Controller {
 
   private final AdminApiService adminApiService;
-  private final AppProperties appProperties;
   private final NotificationService notificationService;
 
-  public AdminV1Controller(
-      AdminApiService adminApiService,
-      AppProperties appProperties,
-      NotificationService notificationService) {
+  public AdminV1Controller(AdminApiService adminApiService, NotificationService notificationService) {
     this.adminApiService = adminApiService;
-    this.appProperties = appProperties;
     this.notificationService = notificationService;
-  }
-
-  @PostMapping("/auth/login")
-  public ApiEnvelope<Map<String, Object>> login(
-      HttpServletRequest req,
-      HttpServletResponse resp,
-      @Valid @RequestBody AdminLoginRequest body) {
-    String token = adminApiService.loginAndCreateSession(body.email(), body.password());
-    ResponseCookie cookie =
-        ResponseCookie.from(AdminSessionService.COOKIE_NAME, token)
-            .httpOnly(true)
-            .sameSite("Lax")
-            .path("/")
-            .maxAge(appProperties.admin().sessionTtlSeconds())
-            .build();
-    resp.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-    return ApiResponses.ok(req, Map.of("ok", true));
-  }
-
-  @PostMapping("/auth/logout")
-  public ApiEnvelope<Map<String, Object>> logout(HttpServletRequest req, HttpServletResponse resp) {
-    var existing = WebUtils.getCookie(req, AdminSessionService.COOKIE_NAME);
-    if (existing != null) {
-      ResponseCookie clear =
-          ResponseCookie.from(AdminSessionService.COOKIE_NAME, "")
-              .httpOnly(true)
-              .sameSite("Lax")
-              .path("/")
-              .maxAge(0)
-              .build();
-      resp.addHeader(HttpHeaders.SET_COOKIE, clear.toString());
-    }
-    org.springframework.security.core.context.SecurityContextHolder.clearContext();
-    return ApiResponses.ok(req, Map.of("ok", true));
   }
 
   @GetMapping("/dashboard")
@@ -109,6 +62,11 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, adminApiService.listCarsAdminPage(onlyPublished, brand, page, size));
   }
 
+  @GetMapping("/cars/form-options")
+  public ApiEnvelope<Map<String, Object>> carFormOptions(HttpServletRequest req) {
+    return ApiResponses.ok(req, adminApiService.listCarFormOptionCatalog());
+  }
+
   @GetMapping("/cars/{id}")
   public ApiEnvelope<Map<String, Object>> getCar(HttpServletRequest req, @PathVariable String id) {
     return ApiResponses.ok(req, adminApiService.getCarAdmin(id));
@@ -117,13 +75,13 @@ public class AdminV1Controller {
   @PostMapping("/cars")
   public ApiEnvelope<Map<String, Object>> createCar(
       HttpServletRequest req, @RequestBody Map<String, Object> body) {
-    return ApiResponses.ok(req, adminApiService.upsertCar(null, body));
+    return ApiResponses.ok(req, adminApiService.createCar(body));
   }
 
   @PutMapping("/cars/{id}")
   public ApiEnvelope<Map<String, Object>> updateCar(
       HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
-    return ApiResponses.ok(req, adminApiService.upsertCar(id, body));
+    return ApiResponses.ok(req, adminApiService.updateCar(id, body));
   }
 
   @DeleteMapping("/cars/{id}")
@@ -252,6 +210,11 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, adminApiService.getUserAdmin(id));
   }
 
+  @GetMapping("/users/{id}/profile")
+  public ApiEnvelope<Map<String, Object>> userProfile(HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.getUserProfile(id));
+  }
+
   @GetMapping("/employees")
   public ApiEnvelope<Map<String, Object>> employees(
       HttpServletRequest req,
@@ -260,10 +223,53 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, adminApiService.listEmployeesPage(page, size));
   }
 
+  @GetMapping("/employees/summary")
+  public ApiEnvelope<Map<String, Object>> employeesSummary(HttpServletRequest req) {
+    return ApiResponses.ok(req, adminApiService.getEmployeesSummary());
+  }
+
+  @GetMapping("/employees/{phone}")
+  public ApiEnvelope<Map<String, Object>> employee(
+      HttpServletRequest req, @PathVariable String phone) {
+    return ApiResponses.ok(req, adminApiService.getEmployee(phone));
+  }
+
+  @GetMapping("/employees/{phone}/profile")
+  public ApiEnvelope<Map<String, Object>> employeeProfile(
+      HttpServletRequest req, @PathVariable String phone) {
+    return ApiResponses.ok(req, adminApiService.getEmployeeProfile(phone));
+  }
+
+  @GetMapping("/employees/{employeeId}/delivery-orders")
+  public ApiEnvelope<Map<String, Object>> employeeDeliveryOrders(
+      HttpServletRequest req,
+      @PathVariable String employeeId,
+      @RequestParam(name = "fromDate", required = false) String fromDate,
+      @RequestParam(name = "toDate", required = false) String toDate,
+      @RequestParam(name = "search", required = false) String search,
+      @RequestParam(name = "page", defaultValue = "0") int page,
+      @RequestParam(name = "size", defaultValue = "20") int size) {
+    return ApiResponses.ok(
+        req,
+        adminApiService.getEmployeeDeliveryOrders(employeeId, fromDate, toDate, search, page, size));
+  }
+
   @PostMapping("/employees")
   public ApiEnvelope<Map<String, Object>> createEmployee(
       HttpServletRequest req, @RequestBody Map<String, Object> body) {
     return ApiResponses.ok(req, adminApiService.createEmployee(body));
+  }
+
+  @PutMapping("/employees/{phone}")
+  public ApiEnvelope<Map<String, Object>> updateEmployee(
+      HttpServletRequest req, @PathVariable String phone, @RequestBody Map<String, Object> body) {
+    return ApiResponses.ok(req, adminApiService.updateEmployee(phone, body));
+  }
+
+  @DeleteMapping("/employees/{phone}")
+  public ApiEnvelope<Map<String, Object>> deleteEmployee(
+      HttpServletRequest req, @PathVariable String phone) {
+    return ApiResponses.ok(req, adminApiService.deleteEmployee(phone));
   }
 
   @PatchMapping("/employees/{phone}/availability")

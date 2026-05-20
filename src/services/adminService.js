@@ -1,11 +1,6 @@
 import * as adminApi from '../api/adminApi.js'
 import { apiV1Base } from '../api/client.js'
 
-export async function loginAdmin(email, password) {
-  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
-  return adminApi.adminLogin({ email, password })
-}
-
 export async function dashboard() {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminDashboard()
@@ -129,6 +124,20 @@ export async function listOrders({ page = 0, size = 5, phone } = {}) {
   }
 }
 
+/** Paginate through admin orders API for aggregate status counts (no new endpoint). */
+export async function listAllOrdersForSummary() {
+  let page = 0
+  let hasMore = true
+  const merged = []
+  while (hasMore) {
+    const result = await listOrders({ page, size: 50 })
+    merged.push(...(result.items || []))
+    hasMore = Boolean(result.hasMore)
+    page = Number.isFinite(result.nextPage) ? result.nextPage : page + 1
+  }
+  return merged
+}
+
 export async function listCars(params = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   let page = 0
@@ -155,6 +164,19 @@ export async function listCarsPage(params = {}) {
     size: typeof d.size === 'number' ? d.size : params.size ?? 5,
     hasMore: Boolean(d.hasMore),
     nextPage: typeof d.nextPage === 'number' ? d.nextPage : (params.page ?? 0) + 1,
+  }
+}
+
+/**
+ * @returns {Promise<{ fuels: { label: string }[], transmissions: { label: string }[] }>}
+ */
+export async function listCarFormOptions() {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminCarFormOptions()
+  const d = data && typeof data === 'object' ? data : {}
+  return {
+    fuels: Array.isArray(d.fuels) ? d.fuels : [],
+    transmissions: Array.isArray(d.transmissions) ? d.transmissions : [],
   }
 }
 
@@ -203,6 +225,47 @@ export async function listUsers() {
   return merged
 }
 
+export async function getUserProfile(id) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetUserProfile(id)
+  return data && typeof data === 'object' ? data : null
+}
+
+export async function getEmployeeProfile(phone) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetEmployeeProfile(phone)
+  return data && typeof data === 'object' ? data : null
+}
+
+/**
+ * @param {string} employeeId - Phone or workforce admin UUID.
+ * @param {{ fromDate?: string, toDate?: string, search?: string, page?: number, size?: number }} [params]
+ */
+export async function getEmployeeDeliveryOrders(employeeId, params = {}) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetEmployeeDeliveryOrders(employeeId, params)
+  const d = data && typeof data === 'object' ? data : {}
+  const summary = d.summary && typeof d.summary === 'object' ? d.summary : {}
+  return {
+    summary: {
+      assignedCount: typeof summary.assignedCount === 'number' ? summary.assignedCount : Number(summary.assignedCount) || 0,
+      shippedCount: typeof summary.shippedCount === 'number' ? summary.shippedCount : Number(summary.shippedCount) || 0,
+      deliveredCount:
+        typeof summary.deliveredCount === 'number' ? summary.deliveredCount : Number(summary.deliveredCount) || 0,
+      deliverySuccessRate:
+        typeof summary.deliverySuccessRate === 'number'
+          ? summary.deliverySuccessRate
+          : Number(summary.deliverySuccessRate) || 0,
+    },
+    orders: Array.isArray(d.orders) ? d.orders : [],
+    page: typeof d.page === 'number' ? d.page : params.page ?? 0,
+    size: typeof d.size === 'number' ? d.size : params.size ?? 20,
+    totalElements: typeof d.totalElements === 'number' ? d.totalElements : Number(d.totalElements) || 0,
+    totalPages: typeof d.totalPages === 'number' ? d.totalPages : Number(d.totalPages) || 0,
+    hasNext: Boolean(d.hasNext),
+  }
+}
+
 export async function listUsersPage({ page = 0, size = 5, phone, role } = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminListUsers({ page, size, phone, role })
@@ -213,6 +276,18 @@ export async function listUsersPage({ page = 0, size = 5, phone, role } = {}) {
     size: typeof d.size === 'number' ? d.size : size,
     hasMore: Boolean(d.hasMore),
     nextPage: typeof d.nextPage === 'number' ? d.nextPage : page + 1,
+  }
+}
+
+export async function getEmployeesSummary() {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminEmployeesSummary()
+  const d = data && typeof data === 'object' ? data : {}
+  return {
+    total: typeof d.total === 'number' ? d.total : 0,
+    active: typeof d.active === 'number' ? d.active : 0,
+    inactive: typeof d.inactive === 'number' ? d.inactive : 0,
+    joinedThisMonth: typeof d.joinedThisMonth === 'number' ? d.joinedThisMonth : 0,
   }
 }
 
@@ -249,6 +324,24 @@ export async function createEmployee(body) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminCreateEmployee(body)
   return data?.employee ?? null
+}
+
+export async function getEmployee(phone) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetEmployee(phone)
+  return data?.employee ?? null
+}
+
+export async function updateEmployee(phone, body) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminUpdateEmployee(phone, body)
+  return data?.employee ?? null
+}
+
+export async function removeEmployee(phone) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeleteEmployee(phone)
+  return data?.removed ?? phone
 }
 
 export async function setEmployeeAvailability(phone, availability) {

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Eye } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 
@@ -152,12 +154,13 @@ export function AdminUsersPage() {
                   <th className="px-5 py-3 font-medium">Name</th>
                   <th className="px-5 py-3 font-medium">Phone</th>
                   <th className="px-5 py-3 font-medium">Role</th>
+                  <th className="px-5 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-steel/40">
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-5 py-10 text-center text-mist">
+                    <td colSpan={5} className="px-5 py-10 text-center text-mist">
                       No users.
                     </td>
                   </tr>
@@ -177,6 +180,15 @@ export function AdminUsersPage() {
                       >
                         {u.role || 'user'}
                       </span>
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <Link
+                        to={`/admin/users/${encodeURIComponent(u.id)}`}
+                        className="inline-flex rounded-lg p-2 text-mist hover:bg-steel/50 hover:text-hud"
+                        title="View profile"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
                     </td>
                   </tr>
                 ))}

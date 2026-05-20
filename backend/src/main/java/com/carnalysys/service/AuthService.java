@@ -309,11 +309,17 @@ public class AuthService {
 
   private void promoteRoleAndActivateEmployeeIfMatched(UserEntity user, String phoneDigits) {
     AdminUser employee = adminUserRepository.findByPhoneE164(phoneDigits).orElse(null);
-    if (employee == null) return;
+    if (employee == null) {
+      return;
+    }
 
     String role = employee.getRole();
-    if (role != null && !role.isBlank() && !role.equalsIgnoreCase(user.getRole())) {
-      user.setRole(role.toLowerCase());
+    if (role == null || role.isBlank()) {
+      return;
+    }
+    String normalizedRole = role.trim().toLowerCase();
+    if (!normalizedRole.equalsIgnoreCase(user.getRole())) {
+      user.setRole(normalizedRole);
       userRepository.save(user);
     }
 
@@ -324,7 +330,7 @@ public class AuthService {
       }
       employee.setLastLoginAt(Instant.now());
       if ("delivery".equalsIgnoreCase(employee.getRole())) {
-        employee.setAvailabilityStatus("free");
+        employee.setAvailabilityStatus("online");
       }
       adminUserRepository.save(employee);
     } else {
@@ -332,7 +338,7 @@ public class AuthService {
         employee.setLastLoginAt(Instant.now());
       }
       if ("delivery".equalsIgnoreCase(employee.getRole())) {
-        employee.setAvailabilityStatus("free");
+        employee.setAvailabilityStatus("online");
       }
       adminUserRepository.save(employee);
     }

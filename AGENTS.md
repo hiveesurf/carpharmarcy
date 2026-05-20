@@ -17,7 +17,7 @@ Guidance for AI agents and contributors working in this repository.
 - `service/` — business logic, transactions
 - `web/v1/` — REST controllers (`/api/v1/...`)
 - `web/dto/`, `web/support/` — request/response helpers
-- `security/` — auth, admin session, JWT/cookies as configured
+- `security/` — storefront JWT + refresh cookie; admin `/api/v1/admin/**` via OTP-linked phone (`admin_users.phone_e164`) and Bearer JWT
 - `config/` — Spring configuration
 - `api/` — shared API types (e.g. envelopes, exceptions)
 

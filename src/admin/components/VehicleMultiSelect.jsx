@@ -73,19 +73,19 @@ export function VehicleMultiSelect({
       ) : null}
 
       {open ? (
-        <div className="mt-2 rounded-xl border border-steel/50 bg-ink/20 p-3">
-          <div className="mb-2 flex items-center gap-2 border border-steel/70 bg-ink/40 px-2 py-1.5">
-            <Search className="h-3.5 w-3.5 text-mist" />
+        <div className="relative z-[60] mt-2 rounded-xl border border-steel/50 bg-[#ffffff] p-3 opacity-100 shadow-lg [backdrop-filter:none]">
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-steel/70 bg-[#ffffff] px-2 py-1.5">
+            <Search className="h-3.5 w-3.5 text-neutral-500" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={placeholder}
-              className="w-full bg-transparent text-sm text-fog outline-none placeholder:text-mist"
+              className="w-full bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-500"
             />
           </div>
           <div className="max-h-52 space-y-1 overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="text-xs text-mist">{emptyText}</p>
+              <p className="text-xs text-neutral-600">{emptyText}</p>
             ) : (
               filtered.map((car) => {
                 const checked = selectedSet.has(car.id)
@@ -94,7 +94,7 @@ export function VehicleMultiSelect({
                     key={car.id}
                     type="button"
                     onClick={() => toggle(car.id)}
-                    className="flex w-full items-center justify-between rounded-lg border border-transparent px-2 py-1.5 text-left text-xs text-fog hover:border-steel/60 hover:bg-ink/30"
+                    className="flex w-full items-center justify-between rounded-lg border border-transparent px-2 py-1.5 text-left text-xs text-neutral-900 hover:border-steel/60 hover:bg-neutral-100"
                   >
                     <span>
                       {car.make} {car.model}

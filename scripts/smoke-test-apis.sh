@@ -3,8 +3,7 @@
 set -u
 BASE="${API_BASE:-http://127.0.0.1:8080/api/v1}"
 USER_JAR=$(mktemp)
-ADMIN_JAR=$(mktemp)
-trap 'rm -f "$USER_JAR" "$ADMIN_JAR"' EXIT
+trap 'rm -f "$USER_JAR"' EXIT
 
 ok_json() { [[ "$(echo "$1" | jq -r '.success // false')" == "true" ]]; }
 
@@ -166,10 +165,9 @@ else
   record SKIP "POST /compat/vehicle-enquiry" "no vehicle id"
 fi
 
-run "POST /admin/auth/login" curl -sS -c "$ADMIN_JAR" -b "$ADMIN_JAR" -H "Content-Type: application/json" \
-  -d '{"email":"admin@carnalysys.com","password":"admin123"}' "$BASE/admin/auth/login"
-
-admincurl() { curl -sS -b "$ADMIN_JAR" -c "$ADMIN_JAR" -H "Content-Type: application/json" "$@"; }
+# Admin APIs (phone + OTP auth only — no POST /admin/auth/login):
+# Reuses TOKEN from POST /auth/verify-otp above. Requires admin_users.phone_e164 = 9876543210 (seed/migration V18).
+admincurl() { curl -sS -b "$USER_JAR" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" "$@"; }
 
 run "GET /admin/dashboard" admincurl "$BASE/admin/dashboard"
 run "GET /admin/products" admincurl "$BASE/admin/products"

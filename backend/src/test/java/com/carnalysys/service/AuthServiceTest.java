@@ -28,6 +28,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -45,6 +46,9 @@ class AuthServiceTest {
   @Mock private AdminUserRepository adminUserRepository;
   @Mock private JwtService jwtService;
   @Mock private PasswordEncoder passwordEncoder;
+  @Mock private NotificationService notificationService;
+  @Mock private WhatsappService whatsappService;
+  @Mock private Environment environment;
 
   @InjectMocks private AuthService authService;
 
@@ -54,6 +58,7 @@ class AuthServiceTest {
     when(otpProperties.demoCode()).thenReturn("123456");
     when(otpProperties.ttlSeconds()).thenReturn(300);
     when(passwordEncoder.encode("123456")).thenReturn("encoded-otp");
+    when(whatsappService.isEnabled()).thenReturn(false);
 
     Map<String, Object> result = authService.sendOtp("9876543210");
 

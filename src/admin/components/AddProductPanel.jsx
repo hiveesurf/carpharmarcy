@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, ImagePlus, Plus, Trash2 } from 'lucide-react'
-import { PART_IMAGE_KEYS, PART_IMAGES } from '../../content/partImages.js'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
@@ -22,10 +21,8 @@ export function AddProductPanel({ onCreated }) {
   const [supplierName, setSupplierName] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
   const [sellingPrice, setSellingPrice] = useState('')
-  const [openingStock, setOpeningStock] = useState('0')
   const [stockIn, setStockIn] = useState('0')
   const [stockOut, setStockOut] = useState('0')
-  const [imageKey, setImageKey] = useState('brakes')
   const [primaryUploadDataUrl, setPrimaryUploadDataUrl] = useState('')
   const [primaryBusy, setPrimaryBusy] = useState(false)
   const [extraPhotos, setExtraPhotos] = useState([])
@@ -39,9 +36,16 @@ export function AddProductPanel({ onCreated }) {
   const [vehicleVariant, setVehicleVariant] = useState('')
   const [vehicleFuel, setVehicleFuel] = useState('')
   const [vehicleError, setVehicleError] = useState('')
+  const [makeComboOpen, setMakeComboOpen] = useState(false)
+  const [makeInput, setMakeInput] = useState('')
+  const [makeHighlight, setMakeHighlight] = useState(-1)
+  const makeComboRef = useRef(null)
+  const vehicleMakeRef = useRef(vehicleMake)
+  vehicleMakeRef.current = vehicleMake
   const [carFormOpen, setCarFormOpen] = useState(false)
   const [carBusy, setCarBusy] = useState(false)
   const [carMsg, setCarMsg] = useState(null)
+  const [carFormOptions, setCarFormOptions] = useState({ fuels: [], transmissions: [] })
   const [newCar, setNewCar] = useState({
     make: '',
     model: '',
@@ -57,13 +61,16 @@ export function AddProductPanel({ onCreated }) {
   const inputClass =
     'w-full border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog outline-none focus:border-accent/60'
 
+  /** Opaque white surface for vehicle compatibility native selects (browser list is OS-rendered). */
+  const vehicleCompatSelectClass =
+    'w-full border border-steel/80 bg-[#ffffff] px-3 py-2 font-sans text-sm text-neutral-900 opacity-100 outline-none focus:border-accent/60'
+
   const sectionTitleClass = 'font-display text-xs font-bold uppercase tracking-wide text-fog'
   const labelClass = 'mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud'
 
-  const opening = useMemo(() => Math.max(0, Number(openingStock) || 0), [openingStock])
   const inQty = useMemo(() => Math.max(0, Number(stockIn) || 0), [stockIn])
   const outQty = useMemo(() => Math.max(0, Number(stockOut) || 0), [stockOut])
-  const currentStock = useMemo(() => opening + inQty - outQty, [opening, inQty, outQty])
+  const currentStock = useMemo(() => inQty - outQty, [inQty, outQty])
   const selectedCars = useMemo(() => {
     if (!Array.isArray(cars) || cars.length === 0 || selectedCarIds.length === 0) return []
     const selected = new Set(selectedCarIds.map((id) => String(id)))
@@ -74,6 +81,11 @@ export function AddProductPanel({ onCreated }) {
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [])
   const makeOptions = useMemo(() => uniqueSorted(cars.map((car) => car.make)), [cars, uniqueSorted])
+  const filteredMakeOptions = useMemo(() => {
+    const q = makeInput.trim().toLowerCase()
+    if (!q) return makeOptions
+    return makeOptions.filter((m) => m.toLowerCase().includes(q))
+  }, [makeInput, makeOptions])
   const carsByMake = useMemo(() => (vehicleMake ? cars.filter((car) => String(car.make || '').trim() === vehicleMake) : []), [cars, vehicleMake])
   const modelOptions = useMemo(() => uniqueSorted(carsByMake.map((car) => car.model)), [carsByMake, uniqueSorted])
   const carsByMakeModel = useMemo(() => {
@@ -121,6 +133,14 @@ export function AddProductPanel({ onCreated }) {
     if (open) {
       loadCategories()
       loadCars()
+      ;(async () => {
+        try {
+          const o = await adminService.listCarFormOptions()
+          setCarFormOptions(o)
+        } catch {
+          setCarFormOptions({ fuels: [], transmissions: [] })
+        }
+      })()
     }
   }, [open, loadCategories, loadCars])
 
@@ -141,6 +161,28 @@ export function AddProductPanel({ onCreated }) {
     }, timeoutMs)
     return () => window.clearTimeout(timer)
   }, [carMsg])
+
+  useEffect(() => {
+    if (!makeComboOpen) {
+      setMakeInput(vehicleMake)
+    }
+  }, [vehicleMake, makeComboOpen])
+
+  useEffect(() => {
+    if (!makeComboOpen) return undefined
+    function onDocMouseDown(e) {
+      if (makeComboRef.current && !makeComboRef.current.contains(e.target)) {
+        setMakeComboOpen(false)
+        setMakeHighlight(-1)
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [makeComboOpen])
+
+  const makeMenuRows = useMemo(() => {
+    return [{ kind: 'clear' }, ...filteredMakeOptions.map((value) => ({ kind: 'make', value }))]
+  }, [filteredMakeOptions])
 
   async function onPickPrimaryFile(ev) {
     const f = ev.target.files?.[0]
@@ -215,10 +257,8 @@ export function AddProductPanel({ onCreated }) {
     setSupplierName('')
     setPurchasePrice('')
     setSellingPrice('')
-    setOpeningStock('0')
     setStockIn('0')
     setStockOut('0')
-    setImageKey('brakes')
     setPrimaryUploadDataUrl('')
     setExtraPhotos([])
     setDescription('')
@@ -229,6 +269,8 @@ export function AddProductPanel({ onCreated }) {
     setVehicleVariant('')
     setVehicleFuel('')
     setVehicleError('')
+    setMakeComboOpen(false)
+    setMakeHighlight(-1)
   }
 
   function onNonNegativeNumber(setter) {
@@ -251,6 +293,13 @@ export function AddProductPanel({ onCreated }) {
     setVehicleVariant('')
     setVehicleFuel('')
     setVehicleError('')
+  }
+
+  function pickVehicleMake(nextMake) {
+    onVehicleMakeChange(nextMake)
+    setMakeComboOpen(false)
+    setMakeHighlight(-1)
+    setMakeInput(nextMake)
   }
 
   function onVehicleModelChange(nextModel) {
@@ -321,6 +370,28 @@ export function AddProductPanel({ onCreated }) {
     setCarBusy(true)
     setCarMsg(null)
     setVehicleError('')
+    if (!carFormOptions.fuels?.length || !carFormOptions.transmissions?.length) {
+      setCarMsg({ type: 'err', text: 'Fuel and transmission options could not be loaded. Close and reopen Add product, then try again.' })
+      setCarBusy(false)
+      return
+    }
+    const fuelTrim = newCar.fuel.trim()
+    const txTrim = newCar.transmission.trim()
+    if (!fuelTrim) {
+      setCarMsg({ type: 'err', text: 'Fuel is required to create a car.' })
+      setCarBusy(false)
+      return
+    }
+    if (!carFormOptions.fuels.some((o) => o.label === fuelTrim)) {
+      setCarMsg({ type: 'err', text: 'Select a valid fuel from the list.' })
+      setCarBusy(false)
+      return
+    }
+    if (txTrim && !carFormOptions.transmissions.some((o) => o.label === txTrim)) {
+      setCarMsg({ type: 'err', text: 'Select a valid transmission from the list or leave it blank.' })
+      setCarBusy(false)
+      return
+    }
     try {
       const createdCar = await adminService.createCar({
         brandName: make,
@@ -328,8 +399,8 @@ export function AddProductPanel({ onCreated }) {
         model,
         variant: newCar.variant.trim() || null,
         modelYear: newCar.modelYear ? Number(newCar.modelYear) : null,
-        fuel: newCar.fuel.trim() || null,
-        transmission: newCar.transmission.trim() || null,
+        fuel: fuelTrim,
+        transmission: txTrim || null,
         engineCc: newCar.engineCc ? Number(newCar.engineCc) : null,
         notes: newCar.notes.trim() || null,
         published: Boolean(newCar.published),
@@ -370,7 +441,7 @@ export function AddProductPanel({ onCreated }) {
     }
 
     if (currentStock < 0) {
-      setMsg({ type: 'err', text: 'Current stock cannot be negative. Increase opening/stock in or reduce stock out.' })
+      setMsg({ type: 'err', text: 'Current stock cannot be negative. Increase stock in or reduce stock out.' })
       setBusy(false)
       return
     }
@@ -403,10 +474,8 @@ export function AddProductPanel({ onCreated }) {
       purchasePrice: Number(purchasePrice) || 0,
       totalStock: currentStock,
       published: true,
-      imageKey: imageKey || 'brakes',
       compatibleCarIds: selectedCarIds,
       metadata: {
-        openingStock: opening,
         stockIn: inQty,
         stockOut: outQty,
       },
@@ -504,10 +573,6 @@ export function AddProductPanel({ onCreated }) {
                 <input required type="number" min={0} step="1" value={sellingPrice} onChange={onNonNegativeNumber(setSellingPrice)} className={inputClass} />
               </div>
               <div>
-                <label className={labelClass}>Opening Stock</label>
-                <input required type="number" min={0} step="1" value={openingStock} onChange={onNonNegativeNumber(setOpeningStock)} className={inputClass} />
-              </div>
-              <div>
                 <label className={labelClass}>Stock In</label>
                 <input required type="number" min={0} step="1" value={stockIn} onChange={onNonNegativeNumber(setStockIn)} className={inputClass} />
               </div>
@@ -519,16 +584,6 @@ export function AddProductPanel({ onCreated }) {
                 <label className={`${labelClass} text-accent`}>Current Stock</label>
                 <input readOnly value={currentStock} className={`${inputClass} border-accent/40 bg-accent-muted/30 font-semibold text-accent`} />
               </div>
-              <div>
-                <label className={labelClass}>Preset Thumbnail Key</label>
-                <select value={imageKey} onChange={(e) => setImageKey(e.target.value)} className={inputClass}>
-                  {PART_IMAGE_KEYS.map((k) => (
-                    <option key={k} value={k}>
-                      {k} — {PART_IMAGES[k]?.alt?.slice(0, 48) ?? k}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
 
             <div className="space-y-3 rounded-xl border border-steel/50 bg-ink/10 p-3">
@@ -539,20 +594,160 @@ export function AddProductPanel({ onCreated }) {
                 </span>
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <div>
+                <div ref={makeComboRef} className="relative">
                   <label className={labelClass}>Vehicle Make</label>
-                  <select value={vehicleMake} onChange={(e) => onVehicleMakeChange(e.target.value)} className={inputClass}>
-                    <option value="">Select make</option>
-                    {makeOptions.map((make) => (
-                      <option key={make} value={make}>
-                        {make}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      role="combobox"
+                      aria-expanded={makeComboOpen}
+                      aria-controls="admin-vehicle-make-listbox"
+                      aria-autocomplete="list"
+                      placeholder="Select make"
+                      value={makeComboOpen ? makeInput : vehicleMake}
+                      onChange={(e) => {
+                        setMakeInput(e.target.value)
+                        setMakeComboOpen(true)
+                        setMakeHighlight(-1)
+                      }}
+                      onFocus={() => {
+                        setMakeInput(vehicleMake)
+                        setMakeComboOpen(true)
+                        setMakeHighlight(-1)
+                      }}
+                      onBlur={() => {
+                        window.requestAnimationFrame(() => {
+                          if (makeComboRef.current?.contains(document.activeElement)) return
+                          setMakeComboOpen(false)
+                          setMakeHighlight(-1)
+                          setMakeInput(vehicleMakeRef.current)
+                        })
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setMakeComboOpen(false)
+                          setMakeHighlight(-1)
+                          setMakeInput(vehicleMake)
+                          return
+                        }
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          setMakeComboOpen(true)
+                          setMakeHighlight((h) => {
+                            const max = makeMenuRows.length - 1
+                            if (max < 0) return -1
+                            return h < 0 ? 0 : Math.min(h + 1, max)
+                          })
+                          return
+                        }
+                        if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          setMakeComboOpen(true)
+                          setMakeHighlight((h) => {
+                            const max = makeMenuRows.length - 1
+                            if (max < 0) return -1
+                            if (h < 0) return max
+                            return Math.max(h - 1, 0)
+                          })
+                          return
+                        }
+                        if (e.key === 'Enter') {
+                          if (!makeComboOpen) {
+                            e.preventDefault()
+                            setMakeComboOpen(true)
+                            setMakeInput(vehicleMake)
+                            return
+                          }
+                          e.preventDefault()
+                          const row = makeMenuRows[makeHighlight]
+                          if (row?.kind === 'clear') {
+                            pickVehicleMake('')
+                            return
+                          }
+                          if (row?.kind === 'make') {
+                            pickVehicleMake(row.value)
+                            return
+                          }
+                          if (filteredMakeOptions.length === 1) {
+                            pickVehicleMake(filteredMakeOptions[0])
+                          }
+                        }
+                      }}
+                      className={`${inputClass} pr-9`}
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={makeComboOpen ? 'Close make list' : 'Open make list'}
+                      className="absolute right-0 top-0 flex h-full items-center px-2 text-mist hover:text-fog"
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={() => {
+                        setMakeComboOpen((open) => {
+                          const next = !open
+                          if (next) {
+                            setMakeInput(vehicleMake)
+                            setMakeHighlight(-1)
+                          }
+                          return next
+                        })
+                      }}
+                    >
+                      <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${makeComboOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                  {makeComboOpen ? (
+                    <ul
+                      id="admin-vehicle-make-listbox"
+                      role="listbox"
+                      className="absolute left-0 right-0 z-[60] mt-1 max-h-48 overflow-auto rounded-lg border border-steel/80 bg-[#ffffff] py-1 font-sans text-sm text-neutral-900 opacity-100 shadow-lg [backdrop-filter:none]"
+                    >
+                      {makeMenuRows.map((row, idx) => {
+                        if (row.kind === 'clear') {
+                          const active = makeHighlight === idx
+                          return (
+                            <li key="__clear" role="presentation">
+                              <button
+                                type="button"
+                                role="option"
+                                tabIndex={-1}
+                                aria-selected={!vehicleMake}
+                                onMouseDown={(ev) => ev.preventDefault()}
+                                onClick={() => pickVehicleMake('')}
+                                className={`w-full px-3 py-2 text-left hover:bg-neutral-100 ${active ? 'bg-neutral-100 font-medium' : ''}`}
+                              >
+                                Select make
+                              </button>
+                            </li>
+                          )
+                        }
+                        const active = makeHighlight === idx
+                        return (
+                          <li key={row.value} role="presentation">
+                            <button
+                              type="button"
+                              role="option"
+                              tabIndex={-1}
+                              aria-selected={vehicleMake === row.value}
+                              onMouseDown={(ev) => ev.preventDefault()}
+                              onClick={() => pickVehicleMake(row.value)}
+                              className={`w-full px-3 py-2 text-left hover:bg-neutral-100 ${active ? 'bg-neutral-100 font-medium' : ''}`}
+                            >
+                              {row.value}
+                            </button>
+                          </li>
+                        )
+                      })}
+                      {filteredMakeOptions.length === 0 && makeInput.trim() !== '' ? (
+                        <li className="px-3 py-2 text-xs text-neutral-600">No matching makes.</li>
+                      ) : null}
+                    </ul>
+                  ) : null}
                 </div>
                 <div>
                   <label className={labelClass}>Vehicle Model</label>
-                  <select value={vehicleModel} onChange={(e) => onVehicleModelChange(e.target.value)} disabled={!vehicleMake} className={inputClass}>
+                  <select value={vehicleModel} onChange={(e) => onVehicleModelChange(e.target.value)} disabled={!vehicleMake} className={vehicleCompatSelectClass}>
                     <option value="">{vehicleMake ? 'Select model' : 'Choose make first'}</option>
                     {modelOptions.map((model) => (
                       <option key={model} value={model}>
@@ -563,7 +758,7 @@ export function AddProductPanel({ onCreated }) {
                 </div>
                 <div>
                   <label className={labelClass}>Year</label>
-                  <select value={vehicleYear} onChange={(e) => setVehicleYear(e.target.value)} disabled={!vehicleModel} className={inputClass}>
+                  <select value={vehicleYear} onChange={(e) => setVehicleYear(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
                     <option value="">{vehicleModel ? 'Any year' : 'Choose model first'}</option>
                     {yearOptions.map((year) => (
                       <option key={year} value={year}>
@@ -574,7 +769,7 @@ export function AddProductPanel({ onCreated }) {
                 </div>
                 <div>
                   <label className={labelClass}>Vehicle Variant</label>
-                  <select value={vehicleVariant} onChange={(e) => setVehicleVariant(e.target.value)} disabled={!vehicleModel} className={inputClass}>
+                  <select value={vehicleVariant} onChange={(e) => setVehicleVariant(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
                     <option value="">{vehicleModel ? 'Any variant' : 'Choose model first'}</option>
                     {variantOptions.map((variant) => (
                       <option key={variant} value={variant}>
@@ -585,7 +780,7 @@ export function AddProductPanel({ onCreated }) {
                 </div>
                 <div>
                   <label className={labelClass}>Vehicle Fuel</label>
-                  <select value={vehicleFuel} onChange={(e) => setVehicleFuel(e.target.value)} disabled={!vehicleModel} className={inputClass}>
+                  <select value={vehicleFuel} onChange={(e) => setVehicleFuel(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
                     <option value="">{vehicleModel ? 'Any fuel' : 'Choose model first'}</option>
                     {fuelOptions.map((fuel) => (
                       <option key={fuel} value={fuel}>
@@ -658,18 +853,32 @@ export function AddProductPanel({ onCreated }) {
                       onChange={(e) => setNewCar((prev) => ({ ...prev, modelYear: e.target.value }))}
                       className={inputClass}
                     />
-                    <input
-                      placeholder="Fuel"
+                    <select
                       value={newCar.fuel}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, fuel: e.target.value }))}
                       className={inputClass}
-                    />
-                    <input
-                      placeholder="Transmission"
+                      aria-label="Fuel"
+                    >
+                      <option value="">Select fuel</option>
+                      {(carFormOptions.fuels || []).map((o) => (
+                        <option key={o.label} value={o.label}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
                       value={newCar.transmission}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, transmission: e.target.value }))}
                       className={inputClass}
-                    />
+                      aria-label="Transmission"
+                    >
+                      <option value="">Transmission (optional)</option>
+                      {(carFormOptions.transmissions || []).map((o) => (
+                        <option key={o.label} value={o.label}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       type="number"
                       min={0}
