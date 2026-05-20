@@ -1,5 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Package,
   RefreshCw,
@@ -10,7 +9,6 @@ import {
   Clock,
   RotateCcw,
   Inbox,
-  Filter,
   Download,
   ChevronDown,
 } from 'lucide-react'
@@ -90,11 +88,8 @@ const DATE_RANGE_OPTIONS = [
   { key: 'custom', label: 'Custom range' },
 ]
 
-const HIGH_VALUE_INR = 10000
-
-const MENU_MIN_WIDTH = 168
-const MENU_GAP = 6
-const MENU_EST_HEIGHT = 120
+const ROW_SELECT_CLASS =
+  'h-8 w-full max-w-full min-w-0 truncate rounded-md border border-[#d5d9d9] bg-white px-2 text-[11px] text-[#0f1111] outline-none focus:border-[#007185] focus:ring-1 focus:ring-[#007185]/30 dark:border-steel/60 dark:bg-slate dark:text-fog'
 
 function deliveryAvailabilityUiLabel(raw) {
   const s = String(raw ?? '').trim().toLowerCase()
@@ -208,7 +203,7 @@ function escapeCsvCell(value) {
 }
 
 function exportOrdersToCsv(orders, employeeByEmail, isDelivery) {
-  const headers = ['Order ID', 'Customer', 'Phone', 'Status', 'Assigned', 'Total', 'Items', 'Created']
+  const headers = ['Order ID', 'Customer', 'Phone', 'Status', 'Assigned', 'Amount', 'Items', 'Created']
   const lines = [
     headers.join(','),
     ...orders.map((o) =>
@@ -324,7 +319,7 @@ function AssignedDeliveryCell({
   }
 
   if (!employeesLoaded) {
-    return <span className="inline-block min-h-[2rem] min-w-[10rem] text-[12px] text-[#565959] dark:text-mist"> </span>
+    return <span className="inline-block min-h-8 w-full text-[12px] text-[#565959] dark:text-mist"> </span>
   }
 
   const anyOnline = deliveryEmployees.some(
@@ -348,7 +343,7 @@ function AssignedDeliveryCell({
       value={order.assignedDeliveryAdminEmail || ''}
       disabled={busyId === order.id}
       onChange={(e) => onAssign(order.id, e.target.value)}
-      className="w-full min-w-[10rem] max-w-[14rem] rounded-md border border-[#d5d9d9] bg-white px-2 py-1 text-[12px] text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
+      className={ROW_SELECT_CLASS}
       aria-label={`Assign delivery for order ${order.id}`}
     >
       <option value="">Unassigned</option>
@@ -364,6 +359,27 @@ function AssignedDeliveryCell({
 function lineItemCount(order) {
   const lines = Array.isArray(order?.lines) ? order.lines : []
   return lines.reduce((sum, l) => sum + (Number(l?.quantity) || 0), 0)
+}
+
+function OrderStatusCell({ order, isDelivery, busyId, onChangeStatus }) {
+  if (isDelivery) {
+    return <OrderStatusBadge status={order.status} />
+  }
+  return (
+    <select
+      value={order.status ?? ''}
+      disabled={busyId === order.id}
+      onChange={(e) => onChangeStatus(order, e.target.value)}
+      className={ROW_SELECT_CLASS}
+      aria-label={`Update status for order ${order.id}`}
+    >
+      {STATUSES.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
+  )
 }
 
 function OrderSummaryCard({ label, value, icon: Icon, iconBg, iconColor }) {
@@ -400,237 +416,104 @@ function OrdersEmptyState({ title, description }) {
   )
 }
 
-function OrderActionsMenu({
-  order,
-  isDelivery,
-  isSuperAdmin,
-  busyId,
-  deliveryEmployees,
-  onChangeStatus,
-  onMarkDelivered,
-  onAssign,
-  onToggleLines,
-  linesExpanded,
-}) {
-  const [open, setOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState(null)
-  const triggerRef = useRef(null)
-  const menuRef = useRef(null)
-  const statusUi = normalizeOrderStatus(order.status)
-  const canMarkDelivered = isDelivery && statusUi === 'shipped'
+const DETAILS_BTN_CLASS =
+  'whitespace-nowrap rounded border border-[#d5d9d9] bg-white px-2 py-1 text-[11px] font-normal text-[#0f1111] shadow-[0_1px_2px_rgba(15,17,17,0.08)] hover:bg-[#f7fafa] dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30'
 
-  const updateMenuPosition = useCallback(() => {
-    const trigger = triggerRef.current
-    if (!trigger) return
-    const rect = trigger.getBoundingClientRect()
-    const menuHeight = menuRef.current?.offsetHeight ?? MENU_EST_HEIGHT
-    const spaceBelow = window.innerHeight - rect.bottom
-    const openUpward = spaceBelow < menuHeight + MENU_GAP + 12
-    const top = openUpward ? rect.top - menuHeight - MENU_GAP : rect.bottom + MENU_GAP
-    const right = Math.max(8, window.innerWidth - rect.right)
-    setMenuPos({ top, right })
-  }, [])
-
-  useEffect(() => {
-    if (!open) {
-      setMenuPos(null)
-      return
-    }
-    updateMenuPosition()
-    const raf = requestAnimationFrame(updateMenuPosition)
-    window.addEventListener('resize', updateMenuPosition)
-    window.addEventListener('scroll', updateMenuPosition, true)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', updateMenuPosition)
-      window.removeEventListener('scroll', updateMenuPosition, true)
-    }
-  }, [open, updateMenuPosition])
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(ev) {
-      const t = ev.target
-      if (triggerRef.current?.contains(t)) return
-      if (menuRef.current?.contains(t)) return
-      setOpen(false)
-    }
-    function onKeyDown(ev) {
-      if (ev.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
-
-  const menu =
-    open && typeof document !== 'undefined'
-      ? createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            style={{
-              position: 'fixed',
-              top: menuPos?.top ?? -9999,
-              right: menuPos?.right ?? 8,
-              minWidth: MENU_MIN_WIDTH,
-              zIndex: 200,
-              visibility: menuPos ? 'visible' : 'hidden',
-            }}
-            className="overflow-hidden rounded-lg border border-[#d5d9d9] bg-white py-1 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate"
-          >
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full px-3 py-2.5 text-left text-sm text-[#0f1111] hover:bg-[#f7fafa] dark:text-fog dark:hover:bg-steel/30"
-              onClick={() => {
-                setOpen(false)
-                onToggleLines()
-              }}
-            >
-              {linesExpanded ? 'Hide line items' : 'View line items'}
-            </button>
-            {!isDelivery ? (
-              <div className="border-t border-[#e7e7e7] px-3 py-2 dark:border-steel/50">
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#565959]">
-                  Update status
-                </label>
-                <select
-                  value={order.status}
-                  disabled={busyId === order.id}
-                  onChange={(e) => {
-                    setOpen(false)
-                    onChangeStatus(order, e.target.value)
-                  }}
-                  className="w-full rounded-md border border-[#d5d9d9] bg-white px-2 py-1.5 text-xs text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            {isSuperAdmin ? (
-              <div className="border-t border-[#e7e7e7] px-3 py-2 dark:border-steel/50">
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#565959]">
-                  Assign delivery
-                </label>
-                <select
-                  value={order.assignedDeliveryAdminEmail || ''}
-                  onChange={(e) => {
-                    setOpen(false)
-                    onAssign(order.id, e.target.value)
-                  }}
-                  className="w-full rounded-md border border-[#d5d9d9] bg-white px-2 py-1.5 text-xs text-[#0f1111] dark:border-steel/60 dark:bg-slate dark:text-fog"
-                >
-                  <option value="">Unassigned</option>
-                  {deliveryEmployees
-                    .filter((d) => {
-                      const availability = String(d?.availability || '').toLowerCase()
-                      return availability === 'online' || d.email === order.assignedDeliveryAdminEmail
-                    })
-                    .map((d) => (
-                      <option key={d.email} value={d.email}>
-                        {(d.name || d.email) + ` (${deliveryAvailabilityUiLabel(d.availability)})`}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            ) : null}
-            {canMarkDelivered ? (
-              <button
-                type="button"
-                role="menuitem"
-                disabled={busyId === order.id}
-                className="flex w-full border-t border-[#e7e7e7] px-3 py-2.5 text-left text-sm font-medium text-accent hover:bg-accent/10 disabled:opacity-50 dark:border-steel/50"
-                onClick={() => {
-                  setOpen(false)
-                  onMarkDelivered(order)
-                }}
-              >
-                {busyId === order.id ? 'Updating…' : 'Mark delivered'}
-              </button>
-            ) : null}
-          </div>,
-          document.body,
-        )
-      : null
+function OrderActionsCell({ order, isDelivery, busyId, linesExpanded, onToggleLines, onMarkDelivered }) {
+  const canMarkDelivered = isDelivery && normalizeOrderStatus(order.status) === 'shipped'
 
   return (
-    <>
-      <div className="inline-flex items-center justify-end gap-1.5">
+    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+      <button
+        type="button"
+        onClick={onToggleLines}
+        className={DETAILS_BTN_CLASS}
+        aria-expanded={linesExpanded}
+      >
+        {linesExpanded ? 'Hide details' : 'View details'}
+      </button>
+      {canMarkDelivered ? (
         <button
           type="button"
-          onClick={onToggleLines}
-          className="whitespace-nowrap rounded border border-[#d5d9d9] bg-white px-2 py-1 text-[11px] font-normal text-[#0f1111] shadow-[0_1px_2px_rgba(15,17,17,0.08)] hover:bg-[#f7fafa] dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30"
-          aria-expanded={linesExpanded}
+          disabled={busyId === order.id}
+          onClick={() => onMarkDelivered(order)}
+          className={`${DETAILS_BTN_CLASS} font-medium text-[#007185] disabled:opacity-50`}
         >
-          {linesExpanded ? 'Hide details' : 'View order details'}
+          {busyId === order.id ? 'Updating…' : 'Mark delivered'}
         </button>
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border border-transparent text-[#565959] hover:border-[#d5d9d9] hover:bg-[#f7fafa] dark:hover:bg-steel/30 ${open ? 'border-[#d5d9d9] bg-[#f7fafa]' : ''}`}
-          aria-label="More order actions"
-          aria-expanded={open}
-          aria-haspopup="menu"
-        >
-          <span className="text-base leading-none">⋯</span>
-        </button>
-      </div>
-      {menu}
-    </>
+      ) : null}
+    </div>
   )
 }
 
 function OrderLinesPanel({ order, isDelivery }) {
+  const lines = Array.isArray(order?.lines) ? order.lines : []
+
   return (
-    <div className="border-t border-[#e7e7e7] bg-[#fafafa] px-5 py-3 dark:border-steel/50 dark:bg-ink/10">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="text-xs font-semibold text-[#565959] dark:text-mist">
-            <th className="pb-2 pr-4 font-semibold">Product</th>
-            <th className="pb-2 pr-4 text-right font-semibold">Qty</th>
-            {!isDelivery ? (
-              <>
-                <th className="pb-2 pr-4 text-right font-semibold">Unit</th>
-                <th className="pb-2 text-right font-semibold">Line</th>
-              </>
-            ) : null}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
-          {(order.lines || []).map((line, i) => (
-            <tr key={`${order.id}-${i}`}>
-              <td className="py-2 pr-4 text-[#0f1111] dark:text-fog">
-                <span className="font-medium">{line.productName || line.productId}</span>
-                {line.sku ? (
-                  <span className="mt-0.5 block font-mono text-[10px] text-[#565959]">{line.sku}</span>
-                ) : null}
-              </td>
-              <td className="py-2 pr-4 text-right tabular-nums">{line.quantity}</td>
-              {!isDelivery ? (
-                <>
-                  <td className="py-2 pr-4 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
-                  <td className="py-2 text-right tabular-nums font-medium">{formatInr(line.lineTotal)}</td>
-                </>
-              ) : null}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {isDelivery && normalizeOrderStatus(order.status) !== 'shipped' &&
-      ['placed', 'confirmed', 'processing'].includes(normalizeOrderStatus(order.status)) ? (
-        <p className="mt-2 text-xs text-[#565959] dark:text-mist">
-          Order must be shipped before delivery completion.
-        </p>
-      ) : null}
+    <div className="border-b-2 border-[#d5d9d9] bg-[#eaeded] px-3 py-3 dark:border-steel/50 dark:bg-ink/25 sm:px-4">
+      <div
+        className="overflow-hidden rounded-md border border-[#d5d9d9] bg-white shadow-[0_1px_3px_rgba(15,17,17,0.12)] dark:border-steel/60 dark:bg-slate"
+        role="region"
+        aria-label={`Order items for ${order.id}`}
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-2.5 dark:border-steel/50 dark:bg-ink/10">
+          <div>
+            <h3 className="text-xs font-semibold text-[#0f1111] dark:text-fog">Order items</h3>
+            <p className="mt-0.5 font-mono text-[10px] text-[#565959] dark:text-mist">Order {order.id}</p>
+          </div>
+          <p className="text-[10px] text-[#565959] dark:text-mist">
+            {lines.length} line{lines.length === 1 ? '' : 's'} · {lineItemCount(order)} units
+          </p>
+        </div>
+        {lines.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-[#565959] dark:text-mist">No line items for this order.</p>
+        ) : (
+          <div className="overflow-x-auto px-2 py-2 sm:px-3">
+            <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-[#e7e7e7] text-[11px] font-semibold text-[#565959] dark:border-steel/50 dark:text-mist">
+                  <th className="px-3 py-2 font-semibold">Product</th>
+                  <th className="px-3 py-2 font-semibold">SKU</th>
+                  <th className="px-3 py-2 text-right font-semibold">Qty</th>
+                  {!isDelivery ? (
+                    <>
+                      <th className="px-3 py-2 text-right font-semibold">Unit price</th>
+                      <th className="px-3 py-2 text-right font-semibold">Line total</th>
+                    </>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
+                {lines.map((line, i) => (
+                  <tr key={`${order.id}-line-${line.sku || line.productId || i}`} className="bg-white dark:bg-slate">
+                    <td className="px-3 py-2 font-medium text-[#0f1111] dark:text-fog">
+                      {line.productName || line.productId || '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[11px] text-[#565959] dark:text-mist">
+                      {line.sku || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{line.quantity ?? '—'}</td>
+                    {!isDelivery ? (
+                      <>
+                        <td className="px-3 py-2 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {formatInr(line.lineTotal)}
+                        </td>
+                      </>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {isDelivery && normalizeOrderStatus(order.status) !== 'shipped' &&
+        ['placed', 'confirmed', 'processing'].includes(normalizeOrderStatus(order.status)) ? (
+          <p className="border-t border-[#e7e7e7] px-4 py-2 text-xs text-[#565959] dark:border-steel/50 dark:text-mist">
+            Order must be shipped before delivery completion.
+          </p>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -656,10 +539,6 @@ export function AdminOrdersPage() {
   const [dateRangePreset, setDateRangePreset] = useState('all')
   const [dateRangeFrom, setDateRangeFrom] = useState('')
   const [dateRangeTo, setDateRangeTo] = useState('')
-  const [extraPaymentStatus, setExtraPaymentStatus] = useState('')
-  const [extraHighValueOnly, setExtraHighValueOnly] = useState(false)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const filtersRef = useRef(null)
   const [hasMore, setHasMore] = useState(false)
   const [nextPage, setNextPage] = useState(1)
   const [expandedOrderId, setExpandedOrderId] = useState(null)
@@ -690,23 +569,6 @@ export function AdminOrdersPage() {
     setDeliveryTo(to)
     setDeliveryMonth('')
   }, [dateRangePreset, isDelivery])
-
-  useEffect(() => {
-    if (!filtersOpen) return
-    function onPointerDown(ev) {
-      if (filtersRef.current?.contains(ev.target)) return
-      setFiltersOpen(false)
-    }
-    function onKeyDown(ev) {
-      if (ev.key === 'Escape') setFiltersOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [filtersOpen])
 
   const employeeByEmail = useMemo(() => {
     const map = new Map()
@@ -836,18 +698,6 @@ export function AdminOrdersPage() {
       .slice(0, 8)
   }, [users, normalizedSearch, selectedUserId])
 
-  const paymentStatusOptions = useMemo(() => {
-    const set = new Set()
-    for (const o of items) {
-      const ps = o?.paymentStatus
-      if (ps != null && String(ps).trim()) set.add(String(ps).trim())
-    }
-    return [...set].sort()
-  }, [items])
-
-  const hasTotalField = useMemo(() => items.some((o) => o?.total != null && !Number.isNaN(Number(o.total))), [items])
-  const hasExtraFilters = paymentStatusOptions.length > 0 || hasTotalField
-
   const filteredItems = useMemo(() => {
     const matchesSearch = (o) => {
       if (selectedUserId) return String(o?.userId || '') === selectedUserId
@@ -878,8 +728,6 @@ export function AdminOrdersPage() {
       ) {
         return false
       }
-      if (extraPaymentStatus && String(o?.paymentStatus ?? '') !== extraPaymentStatus) return false
-      if (extraHighValueOnly && (Number(o?.total) || 0) < HIGH_VALUE_INR) return false
       return true
     })
   }, [
@@ -893,8 +741,6 @@ export function AdminOrdersPage() {
     dateRangeTo,
     deliveryFrom,
     deliveryTo,
-    extraPaymentStatus,
-    extraHighValueOnly,
   ])
 
   const displaySummary = useMemo(() => {
@@ -906,13 +752,11 @@ export function AdminOrdersPage() {
   const hasUserSearch = !!selectedUserId || !!normalizedSearch
   const hasDateFilter = dateRangePreset !== 'all'
   const hasStatusFilter = statusFilter !== 'all'
-  const hasExtraFilterActive = !!extraPaymentStatus || extraHighValueOnly
   const activeFilterCount =
     (hasPhoneSearch ? 1 : 0) +
     (hasUserSearch ? 1 : 0) +
     (hasStatusFilter ? 1 : 0) +
-    (hasDateFilter ? 1 : 0) +
-    (hasExtraFilterActive ? 1 : 0)
+    (hasDateFilter ? 1 : 0)
 
   async function changeStatus(order, status) {
     if (status === order.status) return
@@ -1191,59 +1035,6 @@ export function AdminOrdersPage() {
                 </FilterSelect>
               </div>
 
-              <div className="relative flex-shrink-0" ref={filtersRef}>
-                <button
-                  type="button"
-                  onClick={() => setFiltersOpen((v) => !v)}
-                  className={`${TOOLBAR_BTN}${hasExtraFilterActive ? ' border-[#007185] ring-1 ring-[#007185]/25' : ''}`}
-                  aria-expanded={filtersOpen}
-                  aria-haspopup="true"
-                >
-                  <Filter className="h-4 w-4" aria-hidden />
-                  Filters
-                </button>
-                {filtersOpen ? (
-                  <div className="absolute right-0 z-50 mt-1 w-56 rounded-md border border-[#d5d9d9] bg-white py-2 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate">
-                    {!hasExtraFilters ? (
-                      <p className="px-3 py-2 text-xs text-[#565959] dark:text-mist">
-                        No additional filters available
-                      </p>
-                    ) : (
-                      <div className="space-y-2 px-3">
-                        {paymentStatusOptions.length > 0 ? (
-                          <label className="block">
-                            <span className={FILTER_FIELD_LABEL}>Payment status</span>
-                            <FilterSelect
-                              value={extraPaymentStatus}
-                              onChange={(e) => setExtraPaymentStatus(e.target.value)}
-                              className="w-full"
-                            >
-                              <option value="">All</option>
-                              {paymentStatusOptions.map((ps) => (
-                                <option key={ps} value={ps}>
-                                  {ps}
-                                </option>
-                              ))}
-                            </FilterSelect>
-                          </label>
-                        ) : null}
-                        {hasTotalField ? (
-                          <label className="flex cursor-pointer items-center gap-2 text-xs text-[#0f1111] dark:text-fog">
-                            <input
-                              type="checkbox"
-                              checked={extraHighValueOnly}
-                              onChange={(e) => setExtraHighValueOnly(e.target.checked)}
-                              className="rounded border-[#888c8c]"
-                            />
-                            High value orders (≥ {formatInr(HIGH_VALUE_INR)})
-                          </label>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-
               <div className="flex-shrink-0">
                 <button
                   type="button"
@@ -1323,14 +1114,14 @@ export function AdminOrdersPage() {
             <div className="overflow-x-auto lg:overflow-x-visible">
               <table className="w-full border-collapse text-left lg:table-fixed">
                 <colgroup className="hidden lg:table-column-group">
-                  <col style={{ width: isDelivery ? '18%' : '14%' }} />
-                  <col style={{ width: isDelivery ? '22%' : '18%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: isDelivery ? '14%' : '12%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: isDelivery ? '16%' : '18%' }} />
                   {!isDelivery ? <col style={{ width: '10%' }} /> : null}
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: isDelivery ? '16%' : '14%' }} />
-                  <col style={{ width: isDelivery ? '18%' : '16%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: isDelivery ? '25%' : '13%' }} />
                 </colgroup>
                 <thead className="sticky top-0 z-10 bg-[#fafafa] dark:bg-ink/15">
                   <tr className="border-b border-[#e7e7e7] dark:border-steel/50">
@@ -1338,7 +1129,7 @@ export function AdminOrdersPage() {
                     <th className={TABLE_TH}>Customer</th>
                     <th className={TABLE_TH}>Order status</th>
                     <th className={TABLE_TH}>Assigned</th>
-                    {!isDelivery ? <th className={`${TABLE_TH} text-right`}>Total</th> : null}
+                    {!isDelivery ? <th className={`${TABLE_TH} text-right`}>Amount</th> : null}
                     <th className={`${TABLE_TH} text-right`}>Items</th>
                     <th className={TABLE_TH}>Created</th>
                     <th className={`${TABLE_TH} text-right`}>Actions</th>
@@ -1349,20 +1140,27 @@ export function AdminOrdersPage() {
                     const linesExpanded = expandedOrderId === o.id
                     return (
                       <Fragment key={o.id}>
-                        <tr className={TABLE_ROW}>
+                        <tr
+                          className={`${TABLE_ROW}${linesExpanded ? ' bg-[#f7fafa] dark:bg-steel/20' : ''}`}
+                        >
                           <td className={`${TABLE_CELL} font-mono text-xs`}>{o.id}</td>
                           <td className={TABLE_CELL}>
-                            <p className="font-medium text-[#0f1111] dark:text-fog">
+                            <p className="truncate font-medium text-[#0f1111] dark:text-fog">
                               {o.customerName?.trim() ? o.customerName : 'Customer'}
                             </p>
                             {o.customerPhone ? (
-                              <p className="font-mono text-xs text-[#565959]">{o.customerPhone}</p>
+                              <p className="truncate font-mono text-xs text-[#565959]">{o.customerPhone}</p>
                             ) : null}
                           </td>
-                          <td className={TABLE_CELL}>
-                            <OrderStatusBadge status={o.status} />
+                          <td className={`${TABLE_CELL} max-w-0`}>
+                            <OrderStatusCell
+                              order={o}
+                              isDelivery={isDelivery}
+                              busyId={busyId}
+                              onChangeStatus={changeStatus}
+                            />
                           </td>
-                          <td className={TABLE_CELL}>
+                          <td className={`${TABLE_CELL} max-w-0 overflow-hidden`}>
                             <AssignedDeliveryCell
                               order={o}
                               isSuperAdmin={isSuperAdmin}
@@ -1374,7 +1172,7 @@ export function AdminOrdersPage() {
                             />
                           </td>
                           {!isDelivery ? (
-                            <td className={`${TABLE_CELL} text-right tabular-nums font-medium`}>
+                            <td className={`${TABLE_CELL} text-right tabular-nums font-medium whitespace-nowrap`}>
                               {formatInr(o.total)}
                             </td>
                           ) : null}
@@ -1383,25 +1181,21 @@ export function AdminOrdersPage() {
                             {formatDateTime(o.createdAt)}
                           </td>
                           <td className={`${TABLE_CELL} text-right`}>
-                            <OrderActionsMenu
+                            <OrderActionsCell
                               order={o}
                               isDelivery={isDelivery}
-                              isSuperAdmin={isSuperAdmin}
                               busyId={busyId}
-                              deliveryEmployees={deliveryEmployees}
-                              onChangeStatus={changeStatus}
-                              onMarkDelivered={markDelivered}
-                              onAssign={assign}
+                              linesExpanded={linesExpanded}
                               onToggleLines={() =>
                                 setExpandedOrderId((id) => (id === o.id ? null : o.id))
                               }
-                              linesExpanded={linesExpanded}
+                              onMarkDelivered={markDelivered}
                             />
                           </td>
                         </tr>
                         {linesExpanded ? (
-                          <tr>
-                            <td colSpan={isDelivery ? 7 : 8} className="p-0">
+                          <tr className="bg-[#eaeded] dark:bg-ink/25">
+                            <td colSpan={isDelivery ? 7 : 8} className="p-0 align-top">
                               <OrderLinesPanel order={o} isDelivery={isDelivery} />
                             </td>
                           </tr>

@@ -168,7 +168,7 @@ export function AdminUserProfilePage() {
               to="/admin/users"
               className="font-medium text-[#007185] hover:text-[#005f6b] hover:underline dark:text-[#48a6b8]"
             >
-              Users
+              Customers
             </Link>
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#aab7b8]" aria-hidden />
             <span className="truncate font-medium text-[#565959] dark:text-mist">Customer details</span>
@@ -178,7 +178,7 @@ export function AdminUserProfilePage() {
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-[#d5d9d9] bg-white px-4 py-2 text-sm font-medium text-[#0f1111] shadow-sm transition-colors hover:border-[#aab7b8] hover:bg-[#f7fafa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/40 dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30"
           >
             <ArrowLeft className="h-4 w-4 text-[#565959] dark:text-mist" aria-hidden />
-            Back to users
+            Back to customers
           </Link>
         </div>
 

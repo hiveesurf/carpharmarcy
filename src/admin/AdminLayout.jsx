@@ -28,7 +28,7 @@ function navByRole(role) {
   if (role === 'super_admin') {
     base.push({ to: '/admin/cars', label: 'Cars', icon: CarFront })
     base.push({ to: '/admin/categories', label: 'Categories', icon: FolderTree })
-    base.push({ to: '/admin/users', label: 'Users', icon: Users })
+    base.push({ to: '/admin/users', label: 'Customers', icon: Users })
     base.push({ to: '/admin/employees', label: 'Employees', icon: UserCog })
   }
   base.push({ to: '/admin/orders', label: role === 'delivery' ? 'My deliveries' : 'Orders', icon: ShoppingBag })
