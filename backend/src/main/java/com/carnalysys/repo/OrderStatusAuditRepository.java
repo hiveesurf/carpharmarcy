@@ -1,5 +1,6 @@
 package com.carnalysys.repo;
 
+import com.carnalysys.domain.OrderStatus;
 import com.carnalysys.domain.OrderStatusAuditEntity;
 import java.util.Collection;
 import java.util.List;
@@ -14,10 +15,12 @@ public interface OrderStatusAuditRepository extends JpaRepository<OrderStatusAud
   @Query(
       """
       SELECT a.order.id, MIN(a.createdAt) FROM OrderStatusAuditEntity a
-      WHERE a.order.id IN :orderIds AND a.toStatus = com.carnalysys.domain.OrderStatus.delivered
+      WHERE a.order.id IN :orderIds AND a.toStatus = :deliveredStatus
       GROUP BY a.order.id
       """)
-  List<Object[]> findFirstDeliveredAtByOrderIdIn(@Param("orderIds") Collection<String> orderIds);
+  List<Object[]> findFirstDeliveredAtByOrderIdIn(
+      @Param("orderIds") Collection<String> orderIds,
+      @Param("deliveredStatus") OrderStatus deliveredStatus);
 
   @Query(
       value =

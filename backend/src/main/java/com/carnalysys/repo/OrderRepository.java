@@ -7,7 +7,6 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
@@ -83,7 +82,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
 
   @Query(
       """
-      SELECT o FROM OrderEntity o JOIN o.user u
+      SELECT o FROM OrderEntity o
+      JOIN o.user u
+      LEFT JOIN UserProfile p ON p.userId = u.id
       WHERE lower(o.assignedDeliveryAdminEmail) = lower(:email)
         AND o.placedAt >= :startInclusive
         AND o.placedAt < :endExclusive
@@ -91,11 +92,7 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
         AND (
           lower(o.id) LIKE :searchPat
           OR lower(coalesce(u.displayName, '')) LIKE :searchPat
-          OR EXISTS (
-            SELECT 1 FROM UserProfile p
-            WHERE p.userId = u.id
-              AND lower(coalesce(p.fullName, '')) LIKE :searchPat
-          )
+          OR lower(coalesce(p.fullName, '')) LIKE :searchPat
         )
       ORDER BY o.placedAt DESC
       """)
@@ -103,7 +100,7 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
       @Param("email") String email,
       @Param("startInclusive") Instant startInclusive,
       @Param("endExclusive") Instant endExclusive,
-      @Param("visibleStatuses") Set<OrderStatus> visibleStatuses,
+      @Param("visibleStatuses") Collection<OrderStatus> visibleStatuses,
       @Param("searchPat") String searchPat,
       Pageable pageable);
 

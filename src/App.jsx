@@ -10,6 +10,8 @@ import { AdminCategoriesPage } from './admin/pages/AdminCategoriesPage.jsx'
 import { AdminUsersPage } from './admin/pages/AdminUsersPage.jsx'
 import { AdminEmployeesPage } from './admin/pages/AdminEmployeesPage.jsx'
 import { AdminAddEmployeePage } from './admin/pages/AdminAddEmployeePage.jsx'
+import { AdminAddProductPage } from './admin/pages/AdminAddProductPage.jsx'
+import { AdminAddCarPage } from './admin/pages/AdminAddCarPage.jsx'
 import { AdminUserProfilePage } from './admin/pages/AdminUserProfilePage.jsx'
 import { AdminEmployeeProfilePage } from './admin/pages/AdminEmployeeProfilePage.jsx'
 import { markHeroUserLeftHome } from './lib/heroSession'
@@ -115,7 +117,9 @@ export default function App() {
       >
         <Route index element={<AdminOverviewPage />} />
         <Route path="products" element={<AdminProductsPage />} />
+        <Route path="products/add" element={<AdminAddProductPage />} />
         <Route path="cars" element={<AdminCarsPage />} />
+        <Route path="cars/add" element={<AdminAddCarPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="users" element={<AdminUsersPage />} />

@@ -17,7 +17,8 @@ import {
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
-import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
+import { employeePhotoDisplayUrl } from '../../lib/adminEmployeeAssets.js'
+import { EmployeeAvatar } from '../components/EmployeeAvatar.jsx'
 import { normalizeEmployeePhone, validateEmployeeForm } from '../../lib/employeeFormValidation.js'
 import { AdminStatCard } from '../components/AdminStatCard.jsx'
 
@@ -665,8 +666,6 @@ export function AdminEmployeesPage() {
                   </tr>
                 ) : (
                   visibleItems.map((row) => {
-                    const photo = resolveApiAssetUrl(row.photoUrl)
-                    const initials = (row.name || row.phone || 'E').trim().charAt(0).toUpperCase()
                     const isHighlighted = highlightPhone && row.phone === highlightPhone
                     return (
                       <tr
@@ -675,17 +674,7 @@ export function AdminEmployeesPage() {
                       >
                         <td className={TABLE_CELL}>
                           <div className="flex items-center gap-3">
-                            {photo ? (
-                              <img
-                                src={photo}
-                                alt=""
-                                className="h-9 w-9 shrink-0 rounded-full border border-steel/60 object-cover"
-                              />
-                            ) : (
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-steel/50 to-ink/60 font-display text-sm font-bold text-fog ring-1 ring-steel/50">
-                                {initials}
-                              </span>
-                            )}
+                            <EmployeeAvatar employee={row} />
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <p className="truncate font-semibold text-fog">{row.name || '—'}</p>
                               {isHighlighted ? (
@@ -820,7 +809,11 @@ export function AdminEmployeesPage() {
                   {editPhoto || (editExistingPhoto && !clearEditPhoto) ? (
                     !editPhotoLoadError ? (
                       <img
-                        src={editPhoto || editExistingPhoto}
+                        src={
+                          editPhoto ||
+                          employeePhotoDisplayUrl({ photoUrl: editExistingPhoto }) ||
+                          editExistingPhoto
+                        }
                         alt={editPhoto ? 'Edited preview' : 'Current'}
                         onError={() => setEditPhotoLoadError(true)}
                         className="mt-2 h-16 w-16 rounded-md border border-steel/60 object-cover"

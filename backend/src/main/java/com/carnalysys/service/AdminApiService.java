@@ -412,7 +412,7 @@ public class AdminApiService {
       int size) {
     requireSuperAdmin();
     AdminUser employee = requireWorkforceEmployeeByPathId(employeeId);
-    String email = employee.getEmail();
+    String email = resolveWorkforceEmployeeEmail(employee);
     EmployeeDeliveryDateRange range = parseEmployeeDeliveryDateRange(fromDate, toDate);
 
     long assignedCount =
@@ -1893,7 +1893,8 @@ public class AdminApiService {
     if (orderIds == null || orderIds.isEmpty()) {
       return Map.of();
     }
-    List<Object[]> rows = orderStatusAuditRepository.findFirstDeliveredAtByOrderIdIn(orderIds);
+    List<Object[]> rows =
+        orderStatusAuditRepository.findFirstDeliveredAtByOrderIdIn(orderIds, OrderStatus.delivered);
     Map<String, Instant> m = new HashMap<>();
     for (Object[] row : rows) {
       if (row[0] != null && row[1] != null) {
@@ -2010,6 +2011,19 @@ public class AdminApiService {
 
   private static String workforceEmail(String phone) {
     return "emp_" + phone + "@carnalysys.local";
+  }
+
+  /** Assigned-order queries key on admin email; fall back to canonical workforce email when blank. */
+  private static String resolveWorkforceEmployeeEmail(AdminUser employee) {
+    String email = employee.getEmail();
+    if (email != null && !email.isBlank()) {
+      return email.trim();
+    }
+    String phone = employee.getPhoneE164();
+    if (phone != null && !phone.isBlank()) {
+      return workforceEmail(normalizePhoneKey(phone));
+    }
+    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee email is missing");
   }
 
   private static String parseEmployeePhone(Object raw) {

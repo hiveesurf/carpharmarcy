@@ -1,8 +1,4 @@
-import {
-  normalizeCarBrand,
-  normalizeCarIdentityField,
-  normalizeCarText,
-} from './carIdentityNormalize.js'
+import { normalizeCarBrand, normalizeCarText } from './carIdentityNormalize.js'
 
 export { normalizeCarText } from './carIdentityNormalize.js'
 
@@ -33,8 +29,8 @@ export function parsePositiveCarYear(raw) {
 export function validateCarForm(fields, catalog) {
   const errors = {}
   const make = normalizeCarBrand(fields.make)
-  const model = normalizeCarIdentityField(fields.model)
-  const variant = normalizeCarIdentityField(fields.variant)
+  const model = normalizeCarText(fields.model)
+  const variant = normalizeCarText(fields.variant)
   const fuel = normalizeCarText(fields.fuel)
   const transmission = normalizeCarText(fields.transmission)
 

@@ -48,14 +48,15 @@ public final class CarIdentityNormalizer {
     return sb.toString();
   }
 
-  /** Brand/make: trim, collapse whitespace, Title Case. */
+  /** Brand/make: trim, collapse whitespace, uppercase (e.g. {@code audi} → {@code AUDI}). */
   public static String normalizeBrand(String value) {
-    return toTitleCaseWords(value);
+    String display = normalizeDisplayText(value);
+    return display == null ? null : display.toUpperCase(Locale.ROOT);
   }
 
-  /** Model or variant: same canonical formatting as brand. */
+  /** Model or variant: trim and collapse whitespace only — preserve user casing. */
   public static String normalizeIdentityField(String value) {
-    return toTitleCaseWords(value);
+    return normalizeDisplayText(value);
   }
 
   public record IdentityKeys(String make, String model, String variant, String fuel) {}

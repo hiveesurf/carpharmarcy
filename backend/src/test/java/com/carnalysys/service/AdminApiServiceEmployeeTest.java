@@ -3,6 +3,7 @@ package com.carnalysys.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -224,6 +225,31 @@ class AdminApiServiceEmployeeTest {
                 assertThat(((ApiException) ex).getMessage()).contains("Employee already exists"));
 
     verify(adminUserRepository, never()).save(any());
+  }
+
+  @Test
+  void getEmployeeDeliveryOrdersReturnsEmptySummaryWhenNoOrders() {
+    AdminUser employee = new AdminUser();
+    employee.setPhoneE164("9876543210");
+    employee.setEmail("emp_9876543210@carnalysys.local");
+    employee.setRole("delivery");
+    when(adminUserRepository.findByPhoneE164("9876543210")).thenReturn(Optional.of(employee));
+    when(orderRepository.countAssignedOrdersPlacedBetweenWithStatuses(
+            eq("emp_9876543210@carnalysys.local"), any(), any(), anyCollection()))
+        .thenReturn(0L);
+    when(orderRepository.findEmployeeAssignedOrdersPlacedBetween(
+            eq("emp_9876543210@carnalysys.local"), any(), any(), anyCollection(), eq("%"), any(Pageable.class)))
+        .thenReturn(Page.empty());
+
+    Map<String, Object> result =
+        adminApiService.getEmployeeDeliveryOrders("9876543210", "2026-05-01", "2026-05-31", null, 0, 15);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> summary = (Map<String, Object>) result.get("summary");
+    assertThat(summary.get("assignedCount")).isEqualTo(0L);
+    assertThat(summary.get("deliveredCount")).isEqualTo(0L);
+    assertThat(summary.get("deliverySuccessRate")).isEqualTo(0.0);
+    assertThat(result.get("orders")).asList().isEmpty();
   }
 
   @Test

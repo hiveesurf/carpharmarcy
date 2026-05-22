@@ -23,18 +23,19 @@ export function toTitleCaseWords(value) {
     .join(' ')
 }
 
-/** Canonical brand (make) display and storage format. */
+/** Canonical brand (make / brandName): trim, collapse whitespace, full uppercase for storage. */
 export function normalizeCarBrand(value) {
-  return toTitleCaseWords(value)
+  const t = normalizeCarText(value)
+  return t ? t.toUpperCase() : ''
 }
 
-/** Canonical model / variant display and storage format. */
+/** Model / variant: trim and collapse whitespace only — preserve user casing. */
 export function normalizeCarIdentityField(value) {
-  return toTitleCaseWords(value)
+  return normalizeCarText(value)
 }
 
 /**
- * Deduplicate brand labels case-insensitively; each key maps to Title Case.
+ * Deduplicate brand labels case-insensitively; each key maps to uppercase canonical form.
  * @param {Iterable<string | null | undefined>} makes
  */
 export function dedupeBrandLabels(makes) {

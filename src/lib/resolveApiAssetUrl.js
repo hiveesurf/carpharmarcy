@@ -11,6 +11,7 @@ import { apiV1Base } from '../api/client.js'
 export function resolveApiAssetUrl(path) {
   if (path == null || typeof path !== 'string' || !path.trim()) return undefined
   const p = path.trim()
+  if (p.startsWith('data:') || p.startsWith('blob:')) return p
   if (p.startsWith('http://') || p.startsWith('https://')) return p
   const base = apiV1Base()
   if (!base) return p

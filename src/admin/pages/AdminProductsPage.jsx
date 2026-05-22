@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
+  Download,
   Eye,
+  FileSpreadsheet,
+  IndianRupee,
   LayoutGrid,
   LayoutList,
   MoreVertical,
+  Package,
   PackagePlus,
   Pencil,
+  Plus,
+  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react'
 import { AddStockModal } from '../components/AddStockModal.jsx'
+import { AdminStatCard } from '../components/AdminStatCard.jsx'
 import { ADMIN_LOW_STOCK_THRESHOLD, isAdminLowStock } from '../../lib/adminProductStock.js'
-import { AddProductPanel } from '../components/AddProductPanel.jsx'
+import {
+  aggregateProductInventoryStats,
+  exportAllProductsToCsv,
+  productListDisplayImageUrl,
+  productStockStatus,
+  stockBarColorClass,
+  stockProgressPercent,
+} from '../../lib/adminProductListStats.js'
 import { BulkImportProductsPanel } from '../components/BulkImportProductsPanel.jsx'
 import { ProductEditDrawer } from '../components/ProductEditDrawer.jsx'
 import { SaveSuccessNotice } from '../components/SaveSuccessNotice.jsx'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
-import { SafeImg } from '../../components/ui/SafeImg.jsx'
 import { useAuth } from '../../context/useAuth.js'
-import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 
 function formatInr(n) {
   if (n == null) return '—'
@@ -213,9 +225,99 @@ function ProductRowActions({
 }
 
 const compactSearchClass =
-  'h-9 w-full min-w-[10.5rem] max-w-[14rem] rounded-xl border border-steel/80 bg-ink/40 py-1.5 pl-8 pr-2.5 text-xs text-fog placeholder:text-mist focus:border-accent/50 focus:outline-none'
+  'h-9 w-full min-w-0 flex-1 rounded-xl border border-steel/80 bg-ink/40 py-1.5 pl-8 pr-2.5 text-xs text-fog placeholder:text-mist focus:border-accent/50 focus:outline-none'
+
+const statusBadgeClass = {
+  in: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  low: 'border-flare/40 bg-flare-muted text-flare',
+  out: 'border-steel/60 bg-steel/25 text-mist',
+}
+
+const categoryBadgePalettes = [
+  'border-accent/35 bg-accent/10 text-accent',
+  'border-hud/35 bg-hud/10 text-hud',
+  'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+]
+
+function categoryBadgeClass(category) {
+  if (!category) return categoryBadgePalettes[0]
+  let h = 0
+  for (let i = 0; i < category.length; i += 1) h = (h + category.charCodeAt(i)) % categoryBadgePalettes.length
+  return categoryBadgePalettes[h]
+}
+
+const headerBtnSecondary =
+  'inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-steel/80 bg-ink/30 px-4 font-mono text-[10px] font-medium uppercase tracking-wider text-fog transition-colors hover:border-accent/50 hover:bg-accent/5 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50'
+
+function ProductThumb({ product, className = 'h-14 w-14 shrink-0' }) {
+  const [broken, setBroken] = useState(false)
+  const src = productListDisplayImageUrl(product)
+  const alt = product?.name || product?.sku || 'Product'
+
+  if (!src || broken) {
+    return (
+      <div
+        className={`${className} flex items-center justify-center rounded-xl border border-steel/50 bg-ink/30`}
+        aria-hidden
+      >
+        <Package className="h-5 w-5 text-mist/70" strokeWidth={1.5} />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      width={56}
+      height={56}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+      className={`${className} rounded-xl border border-steel/40 object-cover bg-ink/20`}
+    />
+  )
+}
+
+function ProductCardHero({ product }) {
+  const [broken, setBroken] = useState(false)
+  const src = productListDisplayImageUrl(product)
+  const alt = product?.name || product?.sku || 'Product'
+
+  if (!src || broken) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-steel/20 px-4 text-center">
+        <Package className="h-10 w-10 text-mist/50" strokeWidth={1.25} aria-hidden />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+      className="h-full w-full object-cover"
+    />
+  )
+}
+
+function ProductStockBadge({ product, threshold }) {
+  const status = productStockStatus(product, threshold)
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide ${statusBadgeClass[status.key]}`}
+    >
+      {status.label}
+    </span>
+  )
+}
 
 export function AdminProductsPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { sessionRole } = useAuth()
   const canEditProducts = sessionRole === 'super_admin' || sessionRole === 'sales'
@@ -239,6 +341,11 @@ export function AdminProductsPage() {
   const [lowStockCount, setLowStockCount] = useState(0)
   const [lowStockThreshold, setLowStockThreshold] = useState(ADMIN_LOW_STOCK_THRESHOLD)
   const [stockModalProduct, setStockModalProduct] = useState(null)
+  const [listTotal, setListTotal] = useState(0)
+  const [bulkImportOpen, setBulkImportOpen] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [inventoryStats, setInventoryStats] = useState({ inventoryValue: 0, outOfStockCount: 0 })
+  const [inventoryStatsLoading, setInventoryStatsLoading] = useState(false)
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS)
@@ -248,6 +355,15 @@ export function AdminProductsPage() {
   useEffect(() => {
     setLowStockOnly(searchParams.get('lowStock') === '1')
   }, [searchParams])
+
+  useEffect(() => {
+    const state = location.state
+    if (state?.success) {
+      setProductSaveSuccess(true)
+      setListRefresh((n) => n + 1)
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, location.search, navigate])
 
   useEffect(() => {
     let c = false
@@ -286,6 +402,7 @@ export function AdminProductsPage() {
       })
       setLowStockCount(result.lowStockCount ?? 0)
       setLowStockThreshold(result.lowStockThreshold ?? ADMIN_LOW_STOCK_THRESHOLD)
+      setListTotal(typeof result.total === 'number' ? result.total : 0)
       const activeItems = (result.items || []).filter((x) => !x?.deleted && !x?.deletedAt)
       if (reset) {
         setItems(activeItems)
@@ -322,26 +439,26 @@ export function AdminProductsPage() {
     load(true)
   }, [load])
 
+  useEffect(() => {
+    let cancelled = false
+    setInventoryStatsLoading(true)
+    aggregateProductInventoryStats()
+      .then((stats) => {
+        if (!cancelled) setInventoryStats(stats)
+      })
+      .catch(() => {
+        if (!cancelled) setInventoryStats({ inventoryValue: 0, outOfStockCount: 0 })
+      })
+      .finally(() => {
+        if (!cancelled) setInventoryStatsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [listRefresh])
+
   function bumpList() {
     setListRefresh((n) => n + 1)
-  }
-
-  async function togglePublish(p) {
-    if (p.deleted) return
-    const next = !p.published
-    setBusyId(p.id)
-    try {
-      const updated = await adminService.publishProduct(p.id, next)
-      if (updated) {
-        mergeSavedProduct(updated)
-      } else {
-        bumpList()
-      }
-    } catch (e) {
-      setError(getFetchErrorMessage(e))
-    } finally {
-      setBusyId(null)
-    }
   }
 
   async function remove(p) {
@@ -356,10 +473,6 @@ export function AdminProductsPage() {
     } finally {
       setBusyId(null)
     }
-  }
-
-  function onProductCreated() {
-    bumpList()
   }
 
   function onStockUpdated(updated) {
@@ -378,6 +491,19 @@ export function AdminProductsPage() {
     }
   }
 
+  async function handleExportCsv() {
+    if (exportBusy) return
+    setExportBusy(true)
+    setError(null)
+    try {
+      await exportAllProductsToCsv({ sort })
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {!canEditProducts ? (
@@ -387,41 +513,103 @@ export function AdminProductsPage() {
       ) : null}
       {canEditProducts ? (
       <>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
             Products
           </h1>
-          <p className="mt-1 text-sm text-mist">
+          <p className="mt-1 max-w-xl text-sm text-mist">
             Manage pricing, stock, vehicle fitment, and profitability by product.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <button
+            type="button"
+            onClick={() => void handleExportCsv()}
+            disabled={exportBusy || loading}
+            className={headerBtnSecondary}
+          >
+            <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+            {exportBusy ? 'Exporting…' : 'Export'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBulkImportOpen(true)}
+            className={headerBtnSecondary}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.75} aria-hidden />
+            Import Excel
+          </button>
+          <Link
+            to="/admin/products/add"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-[filter] hover:brightness-95"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+            Add product
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard
+          label="Total products"
+          value={listTotal}
+          icon={Package}
+          accent="text-accent"
+          helper="Active catalog count"
+        />
+        <AdminStatCard
+          label="Low stock"
+          value={lowStockCount}
+          icon={AlertTriangle}
+          accent="text-flare"
+          tone="joined"
+          helper={`At or below ${lowStockThreshold} units`}
+        />
+        <AdminStatCard
+          label="Out of stock"
+          value={inventoryStatsLoading ? '…' : inventoryStats.outOfStockCount}
+          icon={Package}
+          accent="text-mist"
+          tone="offline"
+          helper="Zero units on hand"
+        />
+        <AdminStatCard
+          label="Inventory value"
+          value={inventoryStatsLoading ? '…' : formatInr(inventoryStats.inventoryValue)}
+          icon={IndianRupee}
+          accent="text-hud"
+          tone="online"
+          helper="Purchase cost × stock"
+        />
+      </div>
+
+      <div className="admin-card flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
+        <div className="relative min-w-0 flex-1 sm:max-w-md">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mist"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search products, SKU, brand..."
+            aria-label="Search products"
+            className={compactSearchClass}
+            autoComplete="off"
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative shrink-0">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mist"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products, SKU, brand..."
-              aria-label="Search products"
-              className={compactSearchClass}
-              autoComplete="off"
-            />
-          </div>
           <div className="inline-flex rounded-xl border border-steel/80 p-0.5">
             <button
               type="button"
               onClick={() => setViewMode('list')}
               className={`rounded-lg p-2 transition-colors ${
-                viewMode === 'list'
-                  ? 'bg-steel/50 text-accent'
-                  : 'text-mist hover:text-fog'
+                viewMode === 'list' ? 'bg-accent/15 text-accent' : 'text-mist hover:text-fog'
               }`}
               title="List view"
+              aria-pressed={viewMode === 'list'}
             >
               <LayoutList className="h-4 w-4" strokeWidth={1.75} />
             </button>
@@ -429,11 +617,10 @@ export function AdminProductsPage() {
               type="button"
               onClick={() => setViewMode('card')}
               className={`rounded-lg p-2 transition-colors ${
-                viewMode === 'card'
-                  ? 'bg-steel/50 text-accent'
-                  : 'text-mist hover:text-fog'
+                viewMode === 'card' ? 'bg-accent/15 text-accent' : 'text-mist hover:text-fog'
               }`}
               title="Card view"
+              aria-pressed={viewMode === 'card'}
             >
               <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />
             </button>
@@ -441,7 +628,7 @@ export function AdminProductsPage() {
           <button
             type="button"
             onClick={() => setLowStockFilter(!lowStockOnly)}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 font-mono text-[10px] uppercase tracking-wider transition-colors ${
               lowStockOnly
                 ? 'border-flare/50 bg-flare-muted text-flare'
                 : 'border-steel/80 text-mist hover:border-flare/40 hover:text-flare'
@@ -461,7 +648,8 @@ export function AdminProductsPage() {
               setNextPage(1)
               bumpList()
             }}
-            className="rounded-xl border border-steel/80 bg-ink/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-fog focus:border-accent/50 focus:outline-none"
+            className="h-9 rounded-xl border border-steel/80 bg-ink/40 px-3 font-mono text-[10px] uppercase tracking-wider text-fog focus:border-accent/50 focus:outline-none"
+            aria-label="Sort products"
           >
             <option value="created_desc">Newest created</option>
             <option value="updated_desc">Recently updated</option>
@@ -470,16 +658,25 @@ export function AdminProductsPage() {
             type="button"
             onClick={() => bumpList()}
             disabled={loading || loadingMore}
-            className="rounded-xl border border-steel/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-mist transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-steel/80 px-3 font-mono text-[10px] uppercase tracking-wider text-mist transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Refresh list
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+            Refresh
           </button>
         </div>
       </div>
 
-      <AddProductPanel onCreated={onProductCreated} /> 
-
-      <BulkImportProductsPanel onCompleted={bumpList} />
+      {bulkImportOpen ? (
+        <BulkImportProductsPanel
+          embedded
+          open
+          onClose={() => setBulkImportOpen(false)}
+          onCompleted={() => {
+            bumpList()
+            setBulkImportOpen(false)
+          }}
+        />
+      ) : null}
 
       {lowStockCount > 0 ? (
         <div
@@ -560,23 +757,23 @@ export function AdminProductsPage() {
         <p className="font-mono text-xs text-mist">Loading products…</p>
       ) : viewMode === 'list' ? (
         <>
-          <div className="admin-card overflow-visible">
-            <div className="overflow-x-auto overflow-y-visible pb-1">
-              <table className="w-full min-w-[640px] text-left text-sm">
+          <div className="admin-card overflow-visible rounded-2xl">
+            <div className="overflow-visible pb-1">
+              <table className="w-full table-fixed text-left text-sm">
                 <thead>
-                  <tr className="border-b border-steel/50 font-mono text-[10px] uppercase tracking-wider text-mist">
-                    <th className="px-4 py-3 font-medium">SKU</th>
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium text-right">Price</th>
-                    <th className="px-4 py-3 font-medium text-right">Stock</th>
-                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                  <tr className="border-b border-steel/50 bg-ink/20 font-mono text-[10px] uppercase tracking-wider text-mist">
+                    <th className="w-[38%] px-4 py-3 font-medium">Product</th>
+                    <th className="w-[14%] px-3 py-3 font-medium">Category</th>
+                    <th className="w-[12%] px-3 py-3 font-medium text-right">Price</th>
+                    <th className="w-[16%] px-3 py-3 font-medium">Stock</th>
+                    <th className="w-[12%] px-3 py-3 font-medium">Status</th>
+                    <th className="w-[8%] px-3 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-steel/40">
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-mist">
+                      <td colSpan={6} className="px-4 py-12 text-center text-mist">
                         {debouncedSearch
                           ? 'No products match your search — try another term or clear search.'
                           : lowStockOnly
@@ -585,56 +782,83 @@ export function AdminProductsPage() {
                       </td>
                     </tr>
                   )}
-                  {items.map((p) => (
-                    <tr
-                      key={p.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setEditingId(p.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setEditingId(p.id)
-                        }
-                      }}
-                      className={`cursor-pointer text-mist hover:bg-steel/25 ${p.deleted ? 'opacity-60' : ''}`}
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-mist">{p.sku ?? '—'}</td>
-                      <td className="max-w-[280px] px-4 py-3">
-                        <p className="truncate font-medium text-fog">{p.name}</p>
-                      </td>
-                      <td className="px-4 py-3 text-mist">{p.category ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-fog">
-                        {formatInr(p.actualPrice ?? p.price)}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-right tabular-nums ${
-                          isAdminLowStock(p, lowStockThreshold) ? 'text-flare' : 'text-mist'
-                        }`}
+                  {items.map((p) => {
+                    const stock = Math.max(0, Math.floor(Number(p.totalStock ?? 0)))
+                    const progress = stockProgressPercent(stock, lowStockThreshold)
+                    return (
+                      <tr
+                        key={p.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setEditingId(p.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setEditingId(p.id)
+                          }
+                        }}
+                        className={`cursor-pointer text-mist transition-colors hover:bg-steel/20 ${p.deleted ? 'opacity-60' : ''}`}
                       >
-                        {p.totalStock ?? '—'}
-                        {isAdminLowStock(p, lowStockThreshold) ? (
-                          <span className="ml-2 rounded bg-flare-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-flare">
-                            Low
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end">
-                          <ProductRowActions
-                            product={p}
-                            open={openActionsProductId === p.id}
-                            onOpenChange={(next) => setOpenActionsProductId(next ? p.id : null)}
-                            disabled={busyId === p.id || p.deleted}
-                            onAddStock={(row) => setStockModalProduct(row)}
-                            onEdit={(row) => setEditingId(row.id)}
-                            onView={(row) => setEditingId(row.id)}
-                            onDelete={(row) => remove(row)}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <ProductThumb product={p} />
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-fog">{p.name}</p>
+                              <p className="truncate font-mono text-[11px] text-mist">{p.sku ?? '—'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          {p.category ? (
+                            <span
+                              className={`inline-block max-w-full truncate rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${categoryBadgeClass(p.category)}`}
+                            >
+                              {p.category}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right font-display text-sm font-semibold tabular-nums text-fog">
+                          {formatInr(p.actualPrice ?? p.price)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-col gap-1.5">
+                            <span
+                              className={`font-display text-sm font-bold tabular-nums ${
+                                isAdminLowStock(p, lowStockThreshold) ? 'text-flare' : 'text-fog'
+                              }`}
+                            >
+                              {stock}
+                            </span>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-steel/30">
+                              <div
+                                className={`h-full rounded-full transition-[width] ${stockBarColorClass(p, lowStockThreshold)}`}
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <ProductStockBadge product={p} threshold={lowStockThreshold} />
+                        </td>
+                        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex justify-end">
+                            <ProductRowActions
+                              product={p}
+                              open={openActionsProductId === p.id}
+                              onOpenChange={(next) => setOpenActionsProductId(next ? p.id : null)}
+                              disabled={busyId === p.id || p.deleted}
+                              onAddStock={(row) => setStockModalProduct(row)}
+                              onEdit={(row) => setEditingId(row.id)}
+                              onView={(row) => setEditingId(row.id)}
+                              onDelete={(row) => remove(row)}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -653,8 +877,8 @@ export function AdminProductsPage() {
               </p>
             )}
             {items.map((p) => {
-              const hasImage = !!(p.image && String(p.image).trim())
-              const imgSrc = hasImage ? resolveApiAssetUrl(p.image) ?? p.image : ''
+              const stock = Math.max(0, Math.floor(Number(p.totalStock ?? 0)))
+              const progress = stockProgressPercent(stock, lowStockThreshold)
               return (
                 <article
                   key={p.id}
@@ -667,42 +891,24 @@ export function AdminProductsPage() {
                       setEditingId(p.id)
                     }
                   }}
-                  className="admin-card flex cursor-pointer flex-col overflow-hidden text-left transition-colors hover:border-accent/35"
+                  className="admin-card flex cursor-pointer flex-col overflow-hidden rounded-2xl text-left transition-colors hover:border-accent/35"
                 >
                   <div className="relative aspect-[4/3] bg-ink/40">
-                    {hasImage ? (
-                    <SafeImg
-                      src={imgSrc}
-                      alt=""
-                      fw={480}
-                      fh={360}
-                      className="h-full w-full object-cover"
-                    />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-steel/20 px-4 text-center">
-                        <span className="font-mono text-[10px] uppercase tracking-wider text-mist">No image</span>
-                      </div>
-                    )}
-                    <span
-                      className={
-                        p.deleted
-                          ? 'absolute right-2 top-2 rounded-full bg-flare-muted px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-flare'
-                          : p.published
-                          ? 'absolute right-2 top-2 rounded-full bg-accent-muted px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-accent'
-                          : 'absolute right-2 top-2 rounded-full bg-steel/80 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-mist'
-                      }
-                    >
-                      {p.deleted ? 'Deleted' : p.published ? 'Live' : 'Draft'}
-                    </span>
+                    <ProductCardHero product={p} />
+                    <div className="absolute left-2 top-2">
+                      <ProductStockBadge product={p} threshold={lowStockThreshold} />
+                    </div>
                   </div>
                   <div className="flex flex-1 flex-col gap-2 p-4">
                     <p className="font-mono text-[10px] uppercase tracking-wider text-mist">{p.sku}</p>
                     <h2 className="font-display text-sm font-bold uppercase leading-tight text-fog">{p.name}</h2>
-                    <p className="text-[11px] text-mist">
-                      <span className="capitalize">{p.type}</span>
-                      <span className="mx-1 text-steel">·</span>
-                      {p.category}
-                    </p>
+                    {p.category ? (
+                      <span
+                        className={`inline-flex w-fit rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${categoryBadgeClass(p.category)}`}
+                      >
+                        {p.category}
+                      </span>
+                    ) : null}
                     {p.description ? (
                       <p className="line-clamp-3 text-xs leading-relaxed text-mist">
                         {clipDescription(p.description, 220)}
@@ -721,14 +927,23 @@ export function AdminProductsPage() {
                         <span className="font-display text-lg font-bold tabular-nums text-accent">
                           {formatInr(p.actualPrice ?? p.price)}
                         </span>
-                        <span
-                          className={`mt-0.5 font-mono text-[10px] uppercase tracking-wider ${
-                            isAdminLowStock(p, lowStockThreshold) ? 'text-flare' : 'text-mist'
-                          }`}
-                        >
-                          Stock {p.totalStock ?? '—'}
-                          {isAdminLowStock(p, lowStockThreshold) ? ' · Low' : ''}
-                        </span>
+                        <div className="mt-1 w-full">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span
+                              className={`font-mono text-[10px] uppercase tracking-wider ${
+                                isAdminLowStock(p, lowStockThreshold) ? 'text-flare' : 'text-mist'
+                              }`}
+                            >
+                              Stock {stock}
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-steel/30">
+                            <div
+                              className={`h-full rounded-full ${stockBarColorClass(p, lowStockThreshold)}`}
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        </div>
                       </div>
                       <span className="font-mono text-xs text-mist">Sold {p.soldCount ?? 0}</span>
                     </div>

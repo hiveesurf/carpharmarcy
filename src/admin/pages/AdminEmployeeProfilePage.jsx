@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
-import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
+import { EmployeeAvatar } from '../components/EmployeeAvatar.jsx'
 
 const CANVAS =
   '-mx-4 min-w-0 rounded-none bg-[#eaeded] px-4 py-5 dark:bg-ink/40 md:-mx-6 md:rounded-xl md:px-6 lg:-mx-0 lg:rounded-xl lg:px-8'
@@ -122,7 +122,8 @@ export function AdminEmployeeProfilePage() {
   const [searchDebounced, setSearchDebounced] = useState('')
 
   const [deliveryLoading, setDeliveryLoading] = useState(false)
-  const [deliveryError, setDeliveryError] = useState(null)
+  /** Inline filter validation only — not used for delivery API failures. */
+  const [filterNotice, setFilterNotice] = useState(null)
   const [summary, setSummary] = useState({
     assignedCount: 0,
     shippedCount: 0,
@@ -158,7 +159,6 @@ export function AdminEmployeeProfilePage() {
     async (fromDate, toDate, pageIdx, search) => {
       if (!phone) return
       setDeliveryLoading(true)
-      setDeliveryError(null)
       try {
         const res = await adminService.getEmployeeDeliveryOrders(phone, {
           fromDate,
@@ -173,7 +173,9 @@ export function AdminEmployeeProfilePage() {
         setTotalPages(res.totalPages)
         setTotalElements(res.totalElements)
       } catch (e) {
-        setDeliveryError(getFetchErrorMessage(e))
+        if (import.meta.env.DEV) {
+          console.warn('[AdminEmployeeProfile] delivery orders unavailable', e)
+        }
         setOrders([])
         setSummary({
           assignedCount: 0,
@@ -199,8 +201,6 @@ export function AdminEmployeeProfilePage() {
     void loadDelivery(appliedFrom, appliedTo, 0, searchDebounced)
   }, [phone, appliedFrom, appliedTo, searchDebounced, loadDelivery])
 
-  const photo = useMemo(() => resolveApiAssetUrl(employee?.photoUrl), [employee?.photoUrl])
-
   const computeRangeForApply = () => {
     if (filterPreset === 'today') return rangeToday()
     if (filterPreset === 'month') return rangeThisMonth()
@@ -211,10 +211,10 @@ export function AdminEmployeeProfilePage() {
   const applyFilter = () => {
     const { from, to } = computeRangeForApply()
     if (!from || !to) {
-      setDeliveryError('Please choose From and To dates for a custom range.')
+      setFilterNotice('Please choose From and To dates for a custom range.')
       return
     }
-    setDeliveryError(null)
+    setFilterNotice(null)
     setAppliedFrom(from)
     setAppliedTo(to)
   }
@@ -228,7 +228,7 @@ export function AdminEmployeeProfilePage() {
     setAppliedTo(to)
     setSearchInput('')
     setSearchDebounced('')
-    setDeliveryError(null)
+    setFilterNotice(null)
   }
 
   const goPrevPage = () => {
@@ -243,7 +243,6 @@ export function AdminEmployeeProfilePage() {
     void loadDelivery(appliedFrom, appliedTo, next, searchDebounced)
   }
 
-  const initial = (employee?.name || 'E').trim().charAt(0).toUpperCase()
   const availabilityValue = employeeAvailabilityLabel(employee?.availability)
   const onboardingValue = String(employee?.status ?? 'pending').replace(/_/g, ' ')
   const successRateDisplay =
@@ -265,9 +264,6 @@ export function AdminEmployeeProfilePage() {
         {employeeError ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{employeeError}</div>
         ) : null}
-        {deliveryError ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{deliveryError}</div>
-        ) : null}
 
         {employeeLoading ? (
           <p className="text-sm text-slate-500">Loading employee…</p>
@@ -275,13 +271,12 @@ export function AdminEmployeeProfilePage() {
           <section className="rounded-xl border border-[#d5d9d9] bg-white p-4 shadow-sm md:p-5">
             <div className="flex flex-col gap-4 md:gap-6 lg:flex-row lg:items-start">
               <div className="flex shrink-0 justify-center lg:justify-start">
-                {photo ? (
-                  <img src={photo} alt="" className="h-16 w-16 rounded-full border border-[#d5d9d9] object-cover md:h-20 md:w-20" />
-                ) : (
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-[#d5d9d9] bg-[#f7fafa] font-display text-2xl font-bold text-[#0f1111] md:h-20 md:w-20">
-                    {initial}
-                  </div>
-                )}
+                <EmployeeAvatar
+                  employee={employee}
+                  className="h-16 w-16 md:h-20 md:w-20"
+                  textClass="text-2xl"
+                  ringClass="ring-1 ring-[#d5d9d9]"
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-2xl font-bold tracking-tight text-[#0f1111]">{employee.name || 'Employee'}</h1>
@@ -365,6 +360,11 @@ export function AdminEmployeeProfilePage() {
               Reset
             </button>
           </div>
+          {filterNotice ? (
+            <p className="mt-3 text-sm text-amber-800" role="status">
+              {filterNotice}
+            </p>
+          ) : null}
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -397,8 +397,16 @@ export function AdminEmployeeProfilePage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-left text-sm">
+          <div className="overflow-visible">
+            <table className="w-full table-fixed text-left text-sm">
+              <colgroup>
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-[#e3e6e6] bg-[#f7fafa] text-[10px] font-semibold uppercase tracking-[0.14em] text-[#565959]">
                   <th className="px-4 py-2.5">Order ID</th>
@@ -425,10 +433,10 @@ export function AdminEmployeeProfilePage() {
                 ) : (
                   orders.map((o) => (
                     <tr key={o.orderId} className="text-[#0f1111] hover:bg-[#f7fafa]">
-                      <td className="px-4 py-2.5 font-mono text-xs font-semibold text-[#0f1111]">{o.orderId}</td>
-                      <td className="px-4 py-2.5 font-medium text-[#0f1111]">{o.customerName || '—'}</td>
-                      <td className="px-4 py-2.5 text-[#565959]">{formatDate(o.orderDate)}</td>
-                      <td className="px-4 py-2.5 font-semibold text-[#0f1111]">{formatInr(o.amount)}</td>
+                      <td className="truncate px-4 py-2.5 font-mono text-xs font-semibold text-[#0f1111]">{o.orderId}</td>
+                      <td className="truncate px-4 py-2.5 font-medium text-[#0f1111]">{o.customerName || '—'}</td>
+                      <td className="truncate px-4 py-2.5 text-[#565959]">{formatDate(o.orderDate)}</td>
+                      <td className="truncate px-4 py-2.5 font-semibold text-[#0f1111]">{formatInr(o.amount)}</td>
                       <td className="px-4 py-2.5">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase ring-1 ${statusPillClass(o.status)}`}

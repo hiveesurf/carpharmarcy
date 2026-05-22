@@ -19,10 +19,18 @@ class CarIdentityNormalizerTest {
   }
 
   @Test
-  void toTitleCaseWordsNormalizesBrandCasing() {
-    assertThat(CarIdentityNormalizer.normalizeBrand("audi")).isEqualTo("Audi");
-    assertThat(CarIdentityNormalizer.normalizeBrand("AUDI")).isEqualTo("Audi");
-    assertThat(CarIdentityNormalizer.normalizeBrand("  land   rover ")).isEqualTo("Land Rover");
-    assertThat(CarIdentityNormalizer.normalizeIdentityField("corolla")).isEqualTo("Corolla");
+  void normalizeBrandUppercasesAndCollapsesWhitespace() {
+    assertThat(CarIdentityNormalizer.normalizeBrand("audi")).isEqualTo("AUDI");
+    assertThat(CarIdentityNormalizer.normalizeBrand("bmw")).isEqualTo("BMW");
+    assertThat(CarIdentityNormalizer.normalizeBrand("Honda")).isEqualTo("HONDA");
+    assertThat(CarIdentityNormalizer.normalizeBrand("  land   rover ")).isEqualTo("LAND ROVER");
+  }
+
+  @Test
+  void normalizeIdentityFieldPreservesModelVariantCasing() {
+    assertThat(CarIdentityNormalizer.normalizeIdentityField("a4")).isEqualTo("a4");
+    assertThat(CarIdentityNormalizer.normalizeIdentityField("A4")).isEqualTo("A4");
+    assertThat(CarIdentityNormalizer.normalizeIdentityField("premium plus")).isEqualTo("premium plus");
+    assertThat(CarIdentityNormalizer.normalizeIdentityField("  M   Sport ")).isEqualTo("M Sport");
   }
 }

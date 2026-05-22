@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, Upload, XCircle } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  FileSpreadsheet,
+  Upload,
+  X,
+  XCircle,
+} from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 
 const STATES = {
@@ -57,8 +65,14 @@ function StatusBadge({ status }) {
   )
 }
 
-export function BulkImportProductsPanel({ onCompleted }) {
-  const [open, setOpen] = useState(false)
+/**
+ * @param {{ onCompleted?: () => void, open?: boolean, onClose?: () => void, embedded?: boolean }} props
+ * When embedded=true, parent controls open via `open` / `onClose` (no accordion header).
+ */
+export function BulkImportProductsPanel({ onCompleted, open: controlledOpen, onClose, embedded = false }) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = embedded
+  const open = isControlled ? Boolean(controlledOpen) : internalOpen
   const [phase, setPhase] = useState(STATES.IDLE)
   const [uploadPct, setUploadPct] = useState(0)
   const [file, setFile] = useState(null)
@@ -143,31 +157,8 @@ export function BulkImportProductsPanel({ onCompleted }) {
       : report.rows.slice(0, 10)
     : []
 
-  return (
-    <section className="admin-card">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-display text-lg font-bold uppercase tracking-tight text-fog md:px-5 md:py-4"
-      >
-        <span className="flex items-center gap-2">
-          <FileSpreadsheet className="h-5 w-5 text-accent" strokeWidth={2} />
-          Bulk import products (Excel)
-        </span>
-        {open ? <ChevronUp className="h-5 w-5 text-mist" /> : <ChevronDown className="h-5 w-5 text-mist" />}
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="bulk-body"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-steel/50 px-4 pb-6 pt-4 md:px-5">
+  const panelBody = (
+            <div className={embedded ? 'px-4 pb-6 pt-2 md:px-5' : 'border-t border-steel/50 px-4 pb-6 pt-4 md:px-5'}>
               <p className="mb-4 text-xs text-mist">
                 Upload an <span className="font-mono text-fog">.xlsx</span> file matching the Stock Summary format.
                 All rows are imported transactionally — on any error nothing is saved to the database.
@@ -397,6 +388,56 @@ export function BulkImportProductsPanel({ onCompleted }) {
                 )}
               </AnimatePresence>
             </div>
+  )
+
+  if (embedded) {
+    if (!open) return null
+    return (
+      <section className="admin-card overflow-hidden rounded-2xl ring-1 ring-accent/15">
+        <div className="flex items-center justify-between gap-3 border-b border-steel/50 bg-ink/20 px-4 py-3 md:px-5">
+          <span className="flex items-center gap-2 font-display text-sm font-bold uppercase tracking-tight text-fog">
+            <FileSpreadsheet className="h-4 w-4 text-accent" strokeWidth={2} aria-hidden />
+            Import products (Excel)
+          </span>
+          <button
+            type="button"
+            onClick={() => onClose?.()}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-steel/60 text-mist transition-colors hover:border-flare/40 hover:text-fog"
+            aria-label="Close import panel"
+          >
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
+        {panelBody}
+      </section>
+    )
+  }
+
+  return (
+    <section className="admin-card">
+      <button
+        type="button"
+        onClick={() => setInternalOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-display text-lg font-bold uppercase tracking-tight text-fog md:px-5 md:py-4"
+      >
+        <span className="flex items-center gap-2">
+          <FileSpreadsheet className="h-5 w-5 text-accent" strokeWidth={2} />
+          Bulk import products (Excel)
+        </span>
+        {open ? <ChevronUp className="h-5 w-5 text-mist" /> : <ChevronDown className="h-5 w-5 text-mist" />}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="bulk-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            {panelBody}
           </motion.div>
         )}
       </AnimatePresence>

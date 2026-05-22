@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronUp, ImagePlus, Plus, Trash2 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
@@ -7,13 +8,19 @@ import {
   carIdentityKey,
   dedupeBrandLabelsFromCars,
   normalizeCarBrand,
+  normalizeCarText,
 } from '../../lib/carIdentityNormalize.js'
 import { SaveSuccessNotice } from './SaveSuccessNotice.jsx'
 
 const MAX_RAW_FILE = 12 * 1024 * 1024
 
-export function AddProductPanel({ onCreated }) {
+/**
+ * @param {{ onCreated?: (product: unknown) => void, openTrigger?: number, variant?: 'panel' | 'page', onSuccess?: (product: unknown) => void }} props
+ */
+export function AddProductPanel({ onCreated, openTrigger = 0, variant = 'panel', onSuccess }) {
+  const isPage = variant === 'page'
   const [open, setOpen] = useState(false)
+  const expanded = isPage || open
   const [categories, setCategories] = useState([])
   const [cars, setCars] = useState([])
   const [selectedCarIds, setSelectedCarIds] = useState([])
@@ -146,7 +153,11 @@ export function AddProductPanel({ onCreated }) {
   }, [])
 
   useEffect(() => {
-    if (open) {
+    if (!isPage && openTrigger > 0) setOpen(true)
+  }, [openTrigger, isPage])
+
+  useEffect(() => {
+    if (expanded) {
       loadCategories()
       loadCars()
       ;(async () => {
@@ -158,7 +169,7 @@ export function AddProductPanel({ onCreated }) {
         }
       })()
     }
-  }, [open, loadCategories, loadCars])
+  }, [expanded, loadCategories, loadCars])
 
   useEffect(() => {
     if (!msg?.text) return undefined
@@ -377,8 +388,9 @@ export function AddProductPanel({ onCreated }) {
       e.preventDefault()
       e.stopPropagation()
     }
-    const make = newCar.make.trim()
-    const model = newCar.model.trim()
+    const make = normalizeCarBrand(newCar.make)
+    const model = normalizeCarText(newCar.model)
+    const variant = normalizeCarText(newCar.variant)
     if (!make || !model) {
       setCarMsg({ type: 'err', text: 'Brand and model are required to create a car.' })
       return
@@ -414,7 +426,7 @@ export function AddProductPanel({ onCreated }) {
         brandName: make,
         make,
         model,
-        variant: newCar.variant.trim() || null,
+        variant: variant || null,
         modelYear: newCar.modelYear ? Number(newCar.modelYear) : null,
         fuel: fuelTrim,
         transmission: txTrim || null,
@@ -506,9 +518,13 @@ export function AddProductPanel({ onCreated }) {
       const product = await adminService.createProduct(body)
       if (product) {
         onCreated?.(product)
-        resetFormAfterCreate()
-        setOpen(false)
-        setSaveSuccessOpen(true)
+        if (isPage) {
+          onSuccess?.(product)
+        } else {
+          resetFormAfterCreate()
+          setOpen(false)
+          setSaveSuccessOpen(true)
+        }
       }
     } catch (err) {
       setMsg({ type: 'err', text: getFetchErrorMessage(err) })
@@ -517,24 +533,8 @@ export function AddProductPanel({ onCreated }) {
     }
   }
 
-  return (
-    <>
-    <SaveSuccessNotice open={saveSuccessOpen} onDismiss={() => setSaveSuccessOpen(false)} />
-    <section className="admin-card">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-display text-lg font-bold uppercase tracking-tight text-fog md:px-5 md:py-4"
-      >
-        <span className="flex items-center gap-2">
-          <Plus className="h-5 w-5 text-accent" strokeWidth={2} />
-          Add product
-        </span>
-        {open ? <ChevronUp className="h-5 w-5 text-mist" /> : <ChevronDown className="h-5 w-5 text-mist" />}
-      </button>
-
-      {open && (
-        <div className="border-t border-steel/50 px-4 pb-5 pt-2 md:px-5">
+  const formBody = expanded ? (
+        <div className={isPage ? '' : 'border-t border-steel/50 px-4 pb-5 pt-2 md:px-5'}>
           {msg && (
             <p
               className={`mb-4 rounded-xl border px-3 py-2 text-sm ${
@@ -552,7 +552,7 @@ export function AddProductPanel({ onCreated }) {
               <div className="md:col-span-2 xl:col-span-1">
                 <label className={labelClass}>Category</label>
                 <select required value={categoryName} onChange={(e) => setCategoryName(e.target.value)} disabled={busy || catLoading} className={inputClass}>
-                  <option value="">{catLoading ? 'Loading catalog…' : 'Select category'}</option>
+                  <option value="">{catLoading ? 'Loading catalog…' : 'Select product category'}</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.name}>
                       {c.name}
@@ -562,11 +562,23 @@ export function AddProductPanel({ onCreated }) {
               </div>
               <div>
                 <label className={labelClass}>SKU</label>
-                <input required value={sku} onChange={(e) => setSku(e.target.value)} className={inputClass} />
+                <input
+                  required
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  placeholder="Enter unique SKU"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Part Name</label>
-                <input required value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter product name"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Part Number</label>
@@ -575,16 +587,29 @@ export function AddProductPanel({ onCreated }) {
                   required
                   value={partNumber}
                   onChange={(e) => setPartNumber(e.target.value)}
+                  placeholder="Enter part number"
                   className={inputClass}
                 />
               </div>
               <div>
                 <label className={labelClass}>Brand</label>
-                <input required value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass} />
+                <input
+                  required
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="Enter brand name"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Unit/Volume</label>
-                <input required value={unitVolume} onChange={(e) => setUnitVolume(e.target.value)} className={inputClass} />
+                <input
+                  required
+                  value={unitVolume}
+                  onChange={(e) => setUnitVolume(e.target.value)}
+                  placeholder="Enter unit or volume (e.g. 1L, 4 pcs)"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Supplier Name</label>
@@ -592,28 +617,70 @@ export function AddProductPanel({ onCreated }) {
                   type="text"
                   value={supplierName}
                   onChange={(e) => setSupplierName(e.target.value)}
+                  placeholder="Enter supplier name"
                   className={inputClass}
                 />
               </div>
               <div>
                 <label className={labelClass}>Purchase Price</label>
-                <input required type="number" min={0} step="1" value={purchasePrice} onChange={onNonNegativeNumber(setPurchasePrice)} className={inputClass} />
+                <input
+                  required
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={purchasePrice}
+                  onChange={onNonNegativeNumber(setPurchasePrice)}
+                  placeholder="Enter purchase price"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Selling Price (INR)</label>
-                <input required type="number" min={0} step="1" value={sellingPrice} onChange={onNonNegativeNumber(setSellingPrice)} className={inputClass} />
+                <input
+                  required
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={sellingPrice}
+                  onChange={onNonNegativeNumber(setSellingPrice)}
+                  placeholder="Enter selling price"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Stock In</label>
-                <input required type="number" min={0} step="1" value={stockIn} onChange={onNonNegativeNumber(setStockIn)} className={inputClass} />
+                <input
+                  required
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={stockIn}
+                  onChange={onNonNegativeNumber(setStockIn)}
+                  placeholder="Enter opening stock"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Stock Out</label>
-                <input required type="number" min={0} step="1" value={stockOut} onChange={onNonNegativeNumber(setStockOut)} className={inputClass} />
+                <input
+                  required
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={stockOut}
+                  onChange={onNonNegativeNumber(setStockOut)}
+                  placeholder="Enter stock out quantity"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={`${labelClass} text-accent`}>Current Stock</label>
-                <input readOnly value={currentStock} className={`${inputClass} border-accent/40 bg-accent-muted/30 font-semibold text-accent`} />
+                <input
+                  readOnly
+                  value={currentStock}
+                  placeholder="Calculated from stock in minus stock out"
+                  className={`${inputClass} border-accent/40 bg-accent-muted/30 font-semibold text-accent`}
+                />
               </div>
             </div>
 
@@ -635,7 +702,7 @@ export function AddProductPanel({ onCreated }) {
                       aria-expanded={makeComboOpen}
                       aria-controls="admin-vehicle-make-listbox"
                       aria-autocomplete="list"
-                      placeholder="Select make"
+                      placeholder="Select car brand"
                       value={makeComboOpen ? makeInput : vehicleMake}
                       onChange={(e) => {
                         setMakeInput(e.target.value)
@@ -748,7 +815,7 @@ export function AddProductPanel({ onCreated }) {
                                 onClick={() => pickVehicleMake('')}
                                 className={`w-full px-3 py-2 text-left hover:bg-neutral-100 ${active ? 'bg-neutral-100 font-medium' : ''}`}
                               >
-                                Select make
+                                Select car brand
                               </button>
                             </li>
                           )
@@ -779,7 +846,7 @@ export function AddProductPanel({ onCreated }) {
                 <div>
                   <label className={labelClass}>Vehicle Model</label>
                   <select value={vehicleModel} onChange={(e) => onVehicleModelChange(e.target.value)} disabled={!vehicleMake} className={vehicleCompatSelectClass}>
-                    <option value="">{vehicleMake ? 'Select model' : 'Choose make first'}</option>
+                    <option value="">{vehicleMake ? 'Select car model' : 'Select car brand first'}</option>
                     {modelOptions.map((model) => (
                       <option key={model} value={model}>
                         {model}
@@ -790,7 +857,7 @@ export function AddProductPanel({ onCreated }) {
                 <div>
                   <label className={labelClass}>Year</label>
                   <select value={vehicleYear} onChange={(e) => setVehicleYear(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
-                    <option value="">{vehicleModel ? 'Any year' : 'Choose model first'}</option>
+                    <option value="">{vehicleModel ? 'Select manufacturing year' : 'Select car model first'}</option>
                     {yearOptions.map((year) => (
                       <option key={year} value={year}>
                         {year}
@@ -801,7 +868,7 @@ export function AddProductPanel({ onCreated }) {
                 <div>
                   <label className={labelClass}>Vehicle Variant</label>
                   <select value={vehicleVariant} onChange={(e) => setVehicleVariant(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
-                    <option value="">{vehicleModel ? 'Any variant' : 'Choose model first'}</option>
+                    <option value="">{vehicleModel ? 'Select variant' : 'Select car model first'}</option>
                     {variantOptions.map((variant) => (
                       <option key={variant} value={variant}>
                         {variant}
@@ -812,7 +879,7 @@ export function AddProductPanel({ onCreated }) {
                 <div>
                   <label className={labelClass}>Vehicle Fuel</label>
                   <select value={vehicleFuel} onChange={(e) => setVehicleFuel(e.target.value)} disabled={!vehicleModel} className={vehicleCompatSelectClass}>
-                    <option value="">{vehicleModel ? 'Any fuel' : 'Choose model first'}</option>
+                    <option value="">{vehicleModel ? 'Select fuel type' : 'Select car model first'}</option>
                     {fuelOptions.map((fuel) => (
                       <option key={fuel} value={fuel}>
                         {fuel}
@@ -857,20 +924,20 @@ export function AddProductPanel({ onCreated }) {
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <input
                       required
-                      placeholder="Brand"
+                      placeholder="Enter car brand"
                       value={newCar.make}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, make: e.target.value }))}
                       className={inputClass}
                     />
                     <input
                       required
-                      placeholder="Model"
+                      placeholder="Enter car model name"
                       value={newCar.model}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, model: e.target.value }))}
                       className={inputClass}
                     />
                     <input
-                      placeholder="Variant"
+                      placeholder="Enter variant"
                       value={newCar.variant}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, variant: e.target.value }))}
                       className={inputClass}
@@ -879,7 +946,7 @@ export function AddProductPanel({ onCreated }) {
                       type="number"
                       min={1900}
                       max={2100}
-                      placeholder="Model year"
+                      placeholder="Enter manufacturing year"
                       value={newCar.modelYear}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, modelYear: e.target.value }))}
                       className={inputClass}
@@ -890,7 +957,7 @@ export function AddProductPanel({ onCreated }) {
                       className={inputClass}
                       aria-label="Fuel"
                     >
-                      <option value="">Select fuel</option>
+                      <option value="">Select fuel type</option>
                       {(carFormOptions.fuels || []).map((o) => (
                         <option key={o.label} value={o.label}>
                           {o.label}
@@ -903,7 +970,7 @@ export function AddProductPanel({ onCreated }) {
                       className={inputClass}
                       aria-label="Transmission"
                     >
-                      <option value="">Transmission (optional)</option>
+                      <option value="">Select transmission type</option>
                       {(carFormOptions.transmissions || []).map((o) => (
                         <option key={o.label} value={o.label}>
                           {o.label}
@@ -913,7 +980,7 @@ export function AddProductPanel({ onCreated }) {
                     <input
                       type="number"
                       min={0}
-                      placeholder="Engine CC"
+                      placeholder="Enter engine displacement (CC)"
                       value={newCar.engineCc}
                       onChange={(e) => setNewCar((prev) => ({ ...prev, engineCc: e.target.value }))}
                       className={inputClass}
@@ -929,7 +996,7 @@ export function AddProductPanel({ onCreated }) {
                   </div>
                   <textarea
                     rows={2}
-                    placeholder="Notes (optional)"
+                    placeholder="Enter vehicle notes (optional)"
                     value={newCar.notes}
                     onChange={(e) => setNewCar((prev) => ({ ...prev, notes: e.target.value }))}
                     className={`${inputClass} resize-y`}
@@ -1020,11 +1087,13 @@ export function AddProductPanel({ onCreated }) {
                 <ImagePlus className="h-3.5 w-3.5" strokeWidth={2} />
                 Upload primary image (JPEG, auto-resized)
               </label>
+              <p className="mb-2 text-xs text-mist">Upload product image</p>
               <input
                 type="file"
                 accept="image/*"
                 disabled={primaryBusy || busy}
                 onChange={onPickPrimaryFile}
+                aria-label="Upload product image"
                 className="font-sans text-sm text-mist file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:font-mono file:text-[10px] file:font-semibold file:uppercase file:text-on-accent disabled:opacity-50"
               />
               {primaryBusy && <p className="mt-2 font-mono text-[10px] text-mist">Compressing…</p>}
@@ -1052,12 +1121,14 @@ export function AddProductPanel({ onCreated }) {
                 <ImagePlus className="h-3.5 w-3.5" strokeWidth={2} />
                 More photos (gallery) — select multiple files
               </label>
+              <p className="mb-2 text-xs text-mist">Upload gallery images</p>
               <input
                 type="file"
                 accept="image/*"
                 multiple
                 disabled={extrasBusy || busy}
                 onChange={onPickExtraFiles}
+                aria-label="Upload gallery images"
                 className="font-sans text-sm text-mist file:mr-3 file:rounded-lg file:border-0 file:bg-hud file:px-3 file:py-1.5 file:font-mono file:text-[10px] file:font-semibold file:uppercase file:text-white disabled:opacity-50"
               />
               {extrasBusy && <p className="mt-2 font-mono text-[10px] text-mist">Compressing…</p>}
@@ -1094,6 +1165,7 @@ export function AddProductPanel({ onCreated }) {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
+                placeholder="Enter product description"
                 className={`${inputClass} resize-y`}
               />
             </div>
@@ -1102,19 +1174,50 @@ export function AddProductPanel({ onCreated }) {
               <p className="text-xs text-flare">Current stock cannot be negative.</p>
             ) : null}
 
-            <div className="flex justify-end">
+            <div
+              className={`flex flex-wrap gap-3 ${isPage ? 'justify-end border-t border-steel/40 pt-5' : 'justify-end'}`}
+            >
+              {isPage ? (
+                <Link
+                  to="/admin/products"
+                  className="rounded-xl border border-steel/70 bg-ink/20 px-5 py-2.5 text-sm font-medium text-mist transition-colors hover:bg-steel/30 hover:text-fog"
+                >
+                  Cancel
+                </Link>
+              ) : null}
               <button
                 type="submit"
                 disabled={busy}
-                className="rounded-xl bg-accent px-6 py-2.5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-[filter] hover:brightness-95 disabled:opacity-50"
+                className="inline-flex min-w-[10rem] items-center justify-center rounded-xl bg-accent px-6 py-2.5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-[filter] hover:brightness-95 disabled:opacity-50"
               >
                 {busy ? 'Saving…' : 'Create product'}
               </button>
             </div>
           </form>
         </div>
-      )}
-    </section>
+  ) : null
+
+  if (isPage) {
+    return formBody
+  }
+
+  return (
+    <>
+      <SaveSuccessNotice open={saveSuccessOpen} onDismiss={() => setSaveSuccessOpen(false)} />
+      <section className="admin-card">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-display text-lg font-bold uppercase tracking-tight text-fog md:px-5 md:py-4"
+        >
+          <span className="flex items-center gap-2">
+            <Plus className="h-5 w-5 text-accent" strokeWidth={2} />
+            Add product
+          </span>
+          {open ? <ChevronUp className="h-5 w-5 text-mist" /> : <ChevronDown className="h-5 w-5 text-mist" />}
+        </button>
+        {formBody}
+      </section>
     </>
   )
 }
