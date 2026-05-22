@@ -6,38 +6,46 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Clock,
   Mail,
   MapPin,
   Package,
   Phone,
+  RotateCcw,
   ShoppingBag,
   Truck,
   UserRound,
+  XCircle,
 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
+import {
+  filterOrdersLast7Days,
+  matchesProfileStatusFilter,
+  normalizeOrderStatus,
+  ORDER_STATUS_FILTER_LABELS,
+} from '../../lib/orderStatus.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { ProfileSummaryCard } from '../components/ProfileSummaryCard.jsx'
 
-const ORDER_CARDS = [
-  { key: 'all', label: 'Total Orders', countKey: 'total', icon: ClipboardList },
+const ORDER_SUMMARY_CARDS = [
+  { key: 'recent', label: 'Recent Orders', sublabel: 'Last 7 days', countKey: 'recent', icon: ClipboardList },
   { key: 'placed', label: 'Placed', countKey: 'placed', icon: Package },
+  { key: 'pending', label: 'Pending', countKey: 'pending', icon: Clock },
+  { key: 'confirmed', label: 'Confirmed', countKey: 'confirmed', icon: CheckCircle2 },
   { key: 'processing', label: 'Processing', countKey: 'processing', icon: Box },
   { key: 'shipped', label: 'Shipped', countKey: 'shipped', icon: Truck },
   { key: 'delivered', label: 'Delivered', countKey: 'delivered', icon: CheckCircle2 },
+  { key: 'cancelled', label: 'Cancelled', countKey: 'cancelled', icon: XCircle },
+  { key: 'refunded', label: 'Refunded', countKey: 'refunded', icon: RotateCcw },
 ]
 
-const FILTER_LABELS = {
-  all: 'All orders',
-  placed: 'Placed',
-  processing: 'Processing',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-}
-
-/** Marketplace-style panel (white card on grey canvas) */
+/** White card on grey canvas (matches Admin Users page) */
 const panel =
-  'rounded-lg border border-[#d5d9d9] bg-white shadow-sm dark:border-steel/55 dark:bg-slate dark:shadow-none'
+  'overflow-hidden rounded-xl border border-[#d5d9d9] bg-white shadow-[0_2px_8px_rgba(15,17,17,0.08)] dark:border-steel/60 dark:bg-slate dark:shadow-none'
+
+const BACK_BTN =
+  'inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-accent bg-white px-4 py-2 text-sm font-semibold text-accent shadow-sm transition-colors hover:bg-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 dark:bg-slate dark:hover:bg-accent-muted'
 const labelClass = 'text-[10px] font-semibold uppercase tracking-[0.06em] text-[#6f7373] dark:text-mist'
 const valueClass = 'text-sm font-medium text-[#0f1111] dark:text-fog'
 
@@ -57,18 +65,26 @@ function formatDate(iso) {
 }
 
 function orderStatusPill(status) {
-  const s = String(status ?? '').toLowerCase()
+  const s = normalizeOrderStatus(status)
   if (s === 'delivered') return 'bg-[#d5f0e3] text-[#067d62] ring-[#067d62]/20'
-  if (s === 'shipped') return 'bg-[#e7f4f5] text-[#007185] ring-[#007185]/25'
+  if (s === 'shipped') return 'bg-accent-muted text-accent ring-accent/25'
   if (s === 'processing') return 'bg-[#fef3e8] text-[#c45500] ring-[#c45500]/25'
+  if (s === 'confirmed') return 'bg-accent-muted text-accent ring-accent/25'
+  if (s === 'draft') return 'bg-[#fef3e8] text-[#c45500] ring-[#c45500]/25'
   if (s === 'cancelled' || s === 'refunded') return 'bg-[#fdecea] text-[#b12704] ring-[#b12704]/20'
   return 'bg-[#f0f2f2] text-[#565959] ring-[#565959]/15'
+}
+
+function orderStatusLabel(status) {
+  const s = normalizeOrderStatus(status)
+  if (s === 'draft') return 'pending'
+  return s || '—'
 }
 
 function roleBadgeClass(role) {
   const r = String(role ?? 'user').toLowerCase()
   if (r === 'super_admin' || r === 'admin') {
-    return 'bg-[#e7f4f5] text-[#007185] ring-[#007185]/30'
+    return 'bg-accent-muted text-accent ring-accent/30'
   }
   return 'bg-[#f0f2f2] text-[#565959] ring-[#565959]/20'
 }
@@ -77,7 +93,7 @@ function InfoTile({ icon: Icon, label, children, accent }) {
   return (
     <div className="flex gap-3 rounded-md border border-[#e3e6e6] bg-[#fafafa] px-3 py-2.5 dark:border-steel/50 dark:bg-ink/20">
       <span
-        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${accent ?? 'bg-[#e7f4f5] text-[#007185] dark:bg-hud/15 dark:text-hud'}`}
+        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${accent ?? 'bg-accent-muted text-accent'}`}
       >
         <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
       </span>
@@ -92,7 +108,7 @@ function InfoTile({ icon: Icon, label, children, accent }) {
 function EmptyPanel({ icon: Icon, title, description }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#f0f2f2] text-[#6f7373] ring-1 ring-[#d5d9d9] dark:bg-steel/30 dark:text-mist dark:ring-steel/50">
+      <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent-muted text-accent ring-1 ring-accent/25">
         <Icon className="h-6 w-6" aria-hidden />
       </span>
       <p className="text-base font-semibold text-[#0f1111] dark:text-fog">{title}</p>
@@ -119,7 +135,7 @@ export function AdminUserProfilePage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('recent')
 
   useEffect(() => {
     let cancel = false
@@ -145,13 +161,15 @@ export function AdminUserProfilePage() {
 
   const user = data?.user ?? {}
   const orderCounts = data?.orderCounts ?? {}
+  const last7DayCounts = orderCounts.last7Days ?? {}
   const addresses = Array.isArray(data?.addresses) ? data.addresses : []
   const recentOrders = Array.isArray(data?.recentOrders) ? data.recentOrders : []
 
+  const ordersLast7Days = useMemo(() => filterOrdersLast7Days(recentOrders), [recentOrders])
+
   const filteredOrders = useMemo(() => {
-    if (statusFilter === 'all') return recentOrders
-    return recentOrders.filter((o) => String(o?.status ?? '').toLowerCase() === statusFilter)
-  }, [recentOrders, statusFilter])
+    return ordersLast7Days.filter((o) => matchesProfileStatusFilter(o?.status, statusFilter))
+  }, [ordersLast7Days, statusFilter])
 
   const avatar = resolveApiAssetUrl(user.avatarUrl)
   const displayName = user.name?.trim() || 'User'
@@ -166,19 +184,16 @@ export function AdminUserProfilePage() {
           <nav className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm" aria-label="Breadcrumb">
             <Link
               to="/admin/users"
-              className="font-medium text-[#007185] hover:text-[#005f6b] hover:underline dark:text-[#48a6b8]"
+              className="font-medium text-accent hover:underline"
             >
-              Customers
+              Users
             </Link>
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#aab7b8]" aria-hidden />
-            <span className="truncate font-medium text-[#565959] dark:text-mist">Customer details</span>
+            <span className="truncate font-medium text-[#565959] dark:text-mist">User details</span>
           </nav>
-          <Link
-            to="/admin/users"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-[#d5d9d9] bg-white px-4 py-2 text-sm font-medium text-[#0f1111] shadow-sm transition-colors hover:border-[#aab7b8] hover:bg-[#f7fafa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/40 dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30"
-          >
-            <ArrowLeft className="h-4 w-4 text-[#565959] dark:text-mist" aria-hidden />
-            Back to customers
+          <Link to="/admin/users" className={BACK_BTN}>
+            <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
+            Back to users
           </Link>
         </div>
 
@@ -195,11 +210,11 @@ export function AdminUserProfilePage() {
 
         {!loading && data ? (
           <>
-            {/* Customer header */}
-            <section className={`${panel} overflow-hidden`}>
-              <div className="border-b border-[#e3e6e6] bg-[#fafafa] px-4 py-2.5 dark:border-steel/50 dark:bg-ink/15 sm:px-5">
+            {/* User header */}
+            <section className={panel}>
+              <div className="border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-2.5 dark:border-steel/50 dark:bg-ink/10 sm:px-5">
                 <h1 className="text-xs font-semibold uppercase tracking-[0.08em] text-[#565959] dark:text-mist">
-                  Customer overview
+                  User overview
                 </h1>
               </div>
               <div className="flex flex-col gap-6 p-4 sm:p-5 lg:flex-row lg:items-start lg:gap-8">
@@ -212,7 +227,7 @@ export function AdminUserProfilePage() {
                         className="h-20 w-20 rounded-lg border border-[#d5d9d9] object-cover shadow-sm sm:h-24 sm:w-24"
                       />
                     ) : (
-                      <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-[#d5d9d9] bg-gradient-to-br from-[#232f3e] to-[#37475a] text-2xl font-semibold text-white shadow-sm sm:h-24 sm:w-24 sm:text-3xl">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-[#d5d9d9] bg-accent-muted text-2xl font-semibold text-accent shadow-sm ring-1 ring-accent/30 sm:h-24 sm:w-24 sm:text-3xl">
                         {initials}
                       </div>
                     )}
@@ -250,7 +265,7 @@ export function AdminUserProfilePage() {
                     <InfoTile icon={UserRound} label="Role" accent="bg-[#fef3e8] text-[#c45500] dark:bg-flare-muted dark:text-flare">
                       <span className="uppercase">{user.role || 'user'}</span>
                     </InfoTile>
-                    <InfoTile icon={ShoppingBag} label="Total orders" accent="bg-[#e7f4f5] text-[#007185]">
+                    <InfoTile icon={ShoppingBag} label="Total orders" accent="bg-accent-muted text-accent">
                       <span className="text-lg font-semibold tabular-nums">{totalOrders}</span>
                     </InfoTile>
                   </dl>
@@ -274,7 +289,7 @@ export function AdminUserProfilePage() {
                     <EmptyPanel
                       icon={MapPin}
                       title="No addresses on file"
-                      description="This customer has not added any delivery addresses yet."
+                      description="This user has not added any delivery addresses yet."
                     />
                   ) : (
                     <ul className="grid gap-3 sm:grid-cols-1">
@@ -284,7 +299,7 @@ export function AdminUserProfilePage() {
                           className="rounded-md border border-[#e3e6e6] bg-[#fafafa] p-3.5 dark:border-steel/50 dark:bg-ink/15"
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-[#007185] dark:text-[#48a6b8]">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-accent">
                               {a.label || 'Address'}
                             </p>
                             {a.isDefault ? (
@@ -311,17 +326,18 @@ export function AdminUserProfilePage() {
                 <div className="border-b border-[#e3e6e6] px-4 py-3 dark:border-steel/50 sm:px-5">
                   <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">Order summary</h2>
                   <p className="mt-0.5 text-xs text-[#565959] dark:text-mist">
-                    Select a metric to filter recent orders
+                    Counts for the last 7 days · select a card to filter the list below
                   </p>
                 </div>
                 <div className="grid flex-1 grid-cols-2 gap-2.5 p-4 content-start sm:grid-cols-3 sm:p-5 lg:grid-cols-2 xl:grid-cols-3">
-                  {ORDER_CARDS.map((card) => (
+                  {ORDER_SUMMARY_CARDS.map((card) => (
                     <ProfileSummaryCard
                       key={card.key}
                       variant="seller"
                       icon={card.icon}
                       label={card.label}
-                      value={orderCounts[card.countKey] ?? 0}
+                      sublabel={card.sublabel}
+                      value={last7DayCounts[card.countKey] ?? 0}
                       active={statusFilter === card.key}
                       onClick={() => setStatusFilter(card.key)}
                     />
@@ -336,23 +352,24 @@ export function AdminUserProfilePage() {
                 <div>
                   <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">Recent orders</h2>
                   <p className="mt-0.5 text-xs text-[#565959] dark:text-mist">
-                    Showing {filteredOrders.length} order{filteredOrders.length === 1 ? '' : 's'}
-                    {statusFilter !== 'all' ? (
+                    Last 7 days · showing {filteredOrders.length} order
+                    {filteredOrders.length === 1 ? '' : 's'}
+                    {statusFilter !== 'recent' ? (
                       <>
                         {' '}
-                        · Filter:{' '}
-                        <span className="font-medium text-[#007185] dark:text-[#48a6b8]">
-                          {FILTER_LABELS[statusFilter] ?? statusFilter}
+                        ·{' '}
+                        <span className="font-medium text-accent">
+                          {ORDER_STATUS_FILTER_LABELS[statusFilter] ?? statusFilter}
                         </span>
                       </>
                     ) : null}
                   </p>
                 </div>
-                {statusFilter !== 'all' ? (
+                {statusFilter !== 'recent' ? (
                   <button
                     type="button"
-                    onClick={() => setStatusFilter('all')}
-                    className="self-start rounded-md border border-[#d5d9d9] bg-white px-3 py-1.5 text-xs font-semibold text-[#007185] shadow-sm transition-colors hover:bg-[#e7f4f5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/40 dark:border-steel/60 dark:bg-slate dark:text-[#48a6b8] dark:hover:bg-steel/30"
+                    onClick={() => setStatusFilter('recent')}
+                    className="self-start rounded-lg border border-accent bg-white px-3 py-1.5 text-xs font-semibold text-accent shadow-sm transition-colors hover:bg-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 dark:bg-slate dark:hover:bg-accent-muted"
                   >
                     Clear filter
                   </button>
@@ -362,11 +379,13 @@ export function AdminUserProfilePage() {
                 {filteredOrders.length === 0 ? (
                   <EmptyPanel
                     icon={Package}
-                    title={recentOrders.length === 0 ? 'No orders yet' : 'No orders match this filter'}
+                    title={
+                      ordersLast7Days.length === 0 ? 'No orders in the last 7 days' : 'No orders match this filter'
+                    }
                     description={
-                      recentOrders.length === 0
-                        ? 'This customer has not placed any orders.'
-                        : `No recent orders with status “${FILTER_LABELS[statusFilter] ?? statusFilter}”. Clear the filter or choose another summary card.`
+                      ordersLast7Days.length === 0
+                        ? 'This user has not placed any orders in the last 7 days.'
+                        : `No orders in the last 7 days with status “${ORDER_STATUS_FILTER_LABELS[statusFilter] ?? statusFilter}”. Clear the filter or choose another summary card.`
                     }
                   />
                 ) : (
@@ -383,9 +402,9 @@ export function AdminUserProfilePage() {
                       {filteredOrders.map((o) => (
                         <tr
                           key={o.id}
-                          className="bg-white transition-colors hover:bg-[#f7fafa] dark:bg-transparent dark:hover:bg-steel/15"
+                          className="bg-white transition-colors hover:bg-accent-muted/40 dark:bg-transparent dark:hover:bg-steel/15"
                         >
-                          <td className="px-4 py-3.5 font-mono text-xs text-[#007185] dark:text-[#48a6b8] sm:px-5">
+                          <td className="px-4 py-3.5 font-mono text-xs text-accent sm:px-5">
                             {o.id}
                           </td>
                           <td className="px-4 py-3.5 text-[#565959] dark:text-mist sm:px-5">
@@ -398,7 +417,7 @@ export function AdminUserProfilePage() {
                             <span
                               className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${orderStatusPill(o.status)}`}
                             >
-                              {o.status || '—'}
+                              {orderStatusLabel(o.status)}
                             </span>
                           </td>
                         </tr>

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useNavigate } from 'react-router-dom'
 import { Minus, Plus, ShoppingBag, Trash2, X } from 'lucide-react'
@@ -9,10 +8,6 @@ import { SafeImg } from '../ui/SafeImg'
 import { Button } from '../ui/Button'
 import { ApiSectionError } from '../ui/ApiSectionError'
 import { apiV1Base } from '../../api/client.js'
-import { loadAddresses } from '../../services/userService.js'
-import * as orderService from '../../services/orderService.js'
-import * as paymentService from '../../services/paymentService.js'
-import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 
 export function CartDrawer() {
   const navigate = useNavigate()
@@ -29,120 +24,21 @@ export function CartDrawer() {
     cartError,
     cartLoading,
     retryCart,
-    refreshCart,
   } = useCart()
   const apiOn = Boolean(apiV1Base())
-  const [checkoutBusy, setCheckoutBusy] = useState(false)
-  const [checkoutError, setCheckoutError] = useState(null)
-  const [razorpayBusy, setRazorpayBusy] = useState(false)
 
-  async function ensureRazorpayScript() {
-    if (window.Razorpay) return true
-    await new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-razorpay-checkout="1"]')
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true })
-        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay SDK')), {
-          once: true,
-        })
-        return
-      }
-      const script = document.createElement('script')
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      script.async = true
-      script.dataset.razorpayCheckout = '1'
-      script.onload = () => resolve()
-      script.onerror = () => reject(new Error('Failed to load Razorpay SDK'))
-      document.body.appendChild(script)
-    })
-    return Boolean(window.Razorpay)
-  }
-
-  async function openRazorpayCheckout(order) {
-    const init = await paymentService.initiatePayment({ orderId: order.id })
-    const sdkReady = await ensureRazorpayScript()
-    if (!sdkReady || !window.Razorpay) throw new Error('Razorpay SDK not available')
-    await new Promise((resolve, reject) => {
-      const rz = new window.Razorpay({
-        key: init.keyId,
-        amount: init.amount,
-        currency: init.currency || 'INR',
-        name: 'Carnalysys',
-        description: `Order ${order.id}`,
-        order_id: init.razorpayOrderId,
-        prefill: {
-          name: user?.displayName || '',
-          contact: user?.phone || user?.phoneE164 || '',
-          email: user?.email || '',
-        },
-        notes: {
-          order_id: order.id,
-          transaction_id: init.transactionId,
-        },
-        handler: async (response) => {
-          try {
-            await paymentService.confirmPayment({
-              orderId: order.id,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
-            })
-            resolve()
-          } catch (err) {
-            reject(err)
-          }
-        },
-        modal: {
-          ondismiss: () => reject(new Error('Payment cancelled')),
-        },
-      })
-      rz.open()
-    })
-  }
-
-  async function handlePlaceOrder() {
-    if (!apiOn) return
+  function goToCheckout() {
+    closeCart()
     if (!user) {
       openAuth()
       return
     }
-    if (itemCount <= 0) return
-    setCheckoutBusy(true)
-    setRazorpayBusy(true)
-    setCheckoutError(null)
-    let createdOrder = null
-    try {
-      let addressId
-      try {
-        const addrs = await loadAddresses()
-        const list = Array.isArray(addrs) ? addrs : []
-        const def = list.find((a) => a.isDefault) || list[0]
-        if (def?.id) addressId = def.id
-      } catch {
-        /* shipping optional */
-      }
-      const order = await orderService.placeOrder({
-        ...(addressId ? { addressId } : {}),
-        paymentMethod: 'upi',
-      })
-      createdOrder = order
-      await openRazorpayCheckout(order)
-      await refreshCart?.()
-      closeCart()
-      navigate('/orders')
-    } catch (e) {
-      // Order is created before Razorpay opens. If payment then fails/cancels,
-      // send the user home and let them check final payment state in Orders.
-      if (createdOrder?.id) {
-        closeCart()
-        navigate('/', { replace: true })
-        return
-      }
-      setCheckoutError(getFetchErrorMessage(e))
-    } finally {
-      setCheckoutBusy(false)
-      setRazorpayBusy(false)
-    }
+    navigate('/checkout')
+  }
+
+  function goToCartPage() {
+    closeCart()
+    navigate('/cart')
   }
 
   return (
@@ -271,44 +167,29 @@ export function CartDrawer() {
                 <span className="text-mist">{apiOn ? 'Subtotal' : 'Subtotal (demo)'}</span>
                 <span className="text-lg font-semibold text-accent">{formatInr(subtotal)}</span>
               </div>
-              {checkoutError ? (
-                <p className="mb-3 rounded-lg border border-flare/40 bg-flare-muted px-3 py-2 text-center text-xs text-fog">
-                  {checkoutError}
-                </p>
-              ) : null}
               {apiOn ? (
                 <>
-                  {user && itemCount > 0 ? (
+                  {itemCount > 0 ? (
                     <p className="mb-4 text-center text-xs text-mist">
-                      Secure checkout via Razorpay. Your order is created first, then payment is captured.
+                      {user
+                        ? 'Review address and payment on the checkout page.'
+                        : 'Sign in to proceed to checkout. Your cart is saved on the server.'}
                     </p>
                   ) : null}
-                  {!user && itemCount > 0 ? (
-                    <p className="mb-4 text-center text-xs text-mist">
-                      Sign in to place an order. Your cart is kept on the server while you browse.
-                    </p>
-                  ) : null}
-                  {user && itemCount > 0 ? (
+                  {itemCount > 0 ? (
                     <Button
                       variant="primary"
                       size="md"
                       className="mb-2 w-full"
                       type="button"
-                      disabled={checkoutBusy || razorpayBusy || cartLoading}
-                      onClick={() => void handlePlaceOrder()}
+                      onClick={() => (user ? goToCheckout() : openAuth())}
                     >
-                      {checkoutBusy || razorpayBusy ? 'Opening Razorpay…' : 'Pay with Razorpay'}
+                      {user ? 'Proceed to checkout' : 'Sign in to checkout'}
                     </Button>
                   ) : null}
-                  {!user && itemCount > 0 ? (
-                    <Button
-                      variant="primary"
-                      size="md"
-                      className="mb-2 w-full"
-                      type="button"
-                      onClick={() => openAuth()}
-                    >
-                      Sign in to place order
+                  {itemCount > 0 ? (
+                    <Button variant="secondary" size="md" className="mb-2 w-full" type="button" onClick={goToCartPage}>
+                      View full cart
                     </Button>
                   ) : null}
                   {user ? (

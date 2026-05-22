@@ -48,6 +48,11 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
 
   long countByUser_IdAndStatus(UUID userId, OrderStatus status);
 
+  long countByUser_IdAndPlacedAtGreaterThanEqual(UUID userId, Instant placedAt);
+
+  long countByUser_IdAndStatusAndPlacedAtGreaterThanEqual(
+      UUID userId, OrderStatus status, Instant placedAt);
+
   Page<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseOrderByPlacedAtDesc(
       String assignedDeliveryAdminEmail, Pageable pageable);
 

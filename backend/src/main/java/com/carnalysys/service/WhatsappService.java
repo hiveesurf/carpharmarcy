@@ -57,6 +57,76 @@ public class WhatsappService {
     }
   }
 
+  /**
+   * Sends a low-stock alert to {@code ADMIN_WHATSAPP_NUMBER}. Returns Twilio message SID on success,
+   * or null when disabled, misconfigured, or failed (errors are logged).
+   */
+  public String sendLowStockAlertToAdminBestEffort(
+      String productName, String sku, int quantity, int threshold) {
+    if (!isEnabled()) {
+      log.info("WhatsApp low-stock skipped: WHATSAPP_ENABLED=false or Twilio credentials missing");
+      return null;
+    }
+    String adminPhone = trim(env("ADMIN_WHATSAPP_NUMBER"));
+    if (!hasText(adminPhone)) {
+      log.info("WhatsApp low-stock skipped: ADMIN_WHATSAPP_NUMBER is not configured");
+      return null;
+    }
+    String name = hasText(productName) ? productName.trim() : "Product";
+    String skuLabel = hasText(sku) ? sku.trim() : "—";
+    String templateSid = trim(env("TWILIO_WHATSAPP_TEMPLATE_LOW_STOCK_SID"));
+    String body =
+        String.format(
+            "Low stock alert: %s (%s) has only %d units left (threshold %d).",
+            name, skuLabel, quantity, threshold);
+    try {
+      String to = normalizeTo(adminPhone);
+      String sid;
+      if (hasText(templateSid)) {
+        sid =
+            sendTemplate(
+                to,
+                fromNumber(),
+                templateSid,
+                jsonOf(
+                    Map.of(
+                        "1",
+                        name,
+                        "2",
+                        skuLabel,
+                        "3",
+                        String.valueOf(quantity),
+                        "4",
+                        String.valueOf(threshold),
+                        "product_name",
+                        name,
+                        "sku",
+                        skuLabel,
+                        "quantity",
+                        String.valueOf(quantity),
+                        "threshold",
+                        String.valueOf(threshold))));
+      } else {
+        sid = sendText(to, fromNumber(), body);
+      }
+      log.info(
+          "WhatsApp low-stock alert sent: sku={}, quantity={}, threshold={}, sid={}",
+          skuLabel,
+          quantity,
+          threshold,
+          sid);
+      return sid;
+    } catch (RuntimeException ex) {
+      log.error(
+          "WhatsApp low-stock alert failed: sku={}, quantity={}, threshold={}",
+          skuLabel,
+          quantity,
+          threshold,
+          ex);
+      return null;
+    }
+  }
+
   public boolean sendOrderStatusUpdateBestEffort(String phoneDigits, String orderId, OrderStatus status) {
     if (!isEnabled()) return false;
     if (!hasText(phoneDigits) || status == null) return false;
@@ -81,25 +151,25 @@ public class WhatsappService {
     }
   }
 
-  private void sendText(String to, String from, String body) {
+  private String sendText(String to, String from, String body) {
     Map<String, String> fields = new LinkedHashMap<>();
     fields.put("To", to);
     fields.put("From", from);
     fields.put("Body", body);
-    twilioMessagePost(fields);
+    return twilioMessagePost(fields);
   }
 
-  private void sendTemplate(String to, String from, String contentSid, String contentVariables) {
+  private String sendTemplate(String to, String from, String contentSid, String contentVariables) {
     Map<String, String> fields = new LinkedHashMap<>();
     fields.put("To", to);
     fields.put("From", from);
     fields.put("ContentSid", contentSid);
     fields.put("ContentVariables", contentVariables);
     log.debug("Sending WhatsApp template payload: contentSid={}, contentVariables={}", contentSid, contentVariables);
-    twilioMessagePost(fields);
+    return twilioMessagePost(fields);
   }
 
-  private void twilioMessagePost(Map<String, String> fields) {
+  private String twilioMessagePost(Map<String, String> fields) {
     String accountSid = trim(env("TWILIO_ACCOUNT_SID"));
     String authToken = trim(env("TWILIO_AUTH_TOKEN"));
     if (!hasText(accountSid) || !hasText(authToken)) {
@@ -117,12 +187,38 @@ public class WhatsappService {
     try {
       HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
       int code = response.statusCode();
+      String responseBody = response.body() != null ? response.body() : "";
       if (code < 200 || code >= 300) {
-        throw new IllegalStateException("Twilio API rejected request (" + code + "): " + response.body());
+        throw new IllegalStateException("Twilio API rejected request (" + code + "): " + responseBody);
       }
+      return extractTwilioSid(responseBody);
     } catch (IOException | InterruptedException ex) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Twilio API call failed", ex);
+    }
+  }
+
+  private static String extractTwilioSid(String responseBody) {
+    if (!hasText(responseBody)) {
+      return null;
+    }
+    try {
+      @SuppressWarnings("unchecked")
+      Map<String, Object> json = OBJECT_MAPPER.readValue(responseBody, Map.class);
+      Object sid = json.get("sid");
+      return sid != null ? String.valueOf(sid) : null;
+    } catch (JsonProcessingException ex) {
+      int idx = responseBody.indexOf("\"sid\"");
+      if (idx < 0) {
+        return null;
+      }
+      int colon = responseBody.indexOf(':', idx);
+      int q1 = responseBody.indexOf('"', colon + 1);
+      int q2 = responseBody.indexOf('"', q1 + 1);
+      if (q1 >= 0 && q2 > q1) {
+        return responseBody.substring(q1 + 1, q2);
+      }
+      return null;
     }
   }
 

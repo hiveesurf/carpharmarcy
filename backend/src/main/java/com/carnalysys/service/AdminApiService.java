@@ -122,6 +122,7 @@ public class AdminApiService {
   private final UserAvatarService userAvatarService;
   private final NotificationService notificationService;
   private final ProductExcelParser productExcelParser;
+  private final LowStockAlertService lowStockAlertService;
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
@@ -147,7 +148,8 @@ public class AdminApiService {
       UploadStorageService uploadStorageService,
       UserAvatarService userAvatarService,
       NotificationService notificationService,
-      ProductExcelParser productExcelParser) {
+      ProductExcelParser productExcelParser,
+      LowStockAlertService lowStockAlertService) {
     this.adminUserRepository = adminUserRepository;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -172,6 +174,7 @@ public class AdminApiService {
     this.userAvatarService = userAvatarService;
     this.notificationService = notificationService;
     this.productExcelParser = productExcelParser;
+    this.lowStockAlertService = lowStockAlertService;
   }
 
   @Transactional(readOnly = true)
@@ -197,6 +200,8 @@ public class AdminApiService {
     d.put("revenueVsPurchases", revenueVsPurchases);
     d.put("topProducts", top);
     d.put("salesPerformance", listSalesPerformance());
+    d.put("lowStockCount", catalogService.countLowStockForAdmin());
+    d.put("lowStockThreshold", AdminProductSpecifications.LOW_STOCK_THRESHOLD);
     return d;
   }
 
@@ -240,6 +245,7 @@ public class AdminApiService {
                   userAvatarService.hasAvatar(u.getId())
                       ? userAvatarService.publicAvatarUrl(u.getId())
                       : "");
+              m.put("createdAt", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
               return m;
             })
         .toList();
@@ -631,8 +637,9 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listProductsPage(int page, int pageSize, String sort) {
-    return catalogService.listProductsPageForAdmin(page, pageSize, sort);
+  public Map<String, Object> listProductsPage(
+      int page, int pageSize, String sort, String search, boolean lowStockOnly) {
+    return catalogService.listProductsPageForAdmin(page, pageSize, sort, search, lowStockOnly);
   }
 
   @Transactional(readOnly = true)
@@ -665,6 +672,7 @@ public class AdminApiService {
             : (body.get("id") != null ? String.valueOf(body.get("id")) : "prd_" + UUID.randomUUID());
     boolean isNew = !productRepository.existsById(id);
     Product p = productRepository.findById(id).orElseGet(Product::new);
+    int previousStock = isNew ? LowStockAlertService.NO_PRIOR_STOCK : p.getStockQuantity();
     p.setId(id);
     String catName = String.valueOf(body.getOrDefault("category", "Misc"));
     Category cat = resolveOrCreateCategoryForProduct(catName);
@@ -690,7 +698,9 @@ public class AdminApiService {
     if (body.containsKey("description")) p.setDescription(strOrNull(body.get("description")));
     if (p.getType() == ProductType.part) {
       p.setMetadata(mergePartImageMetadata(p.getMetadata(), body));
-    } else {
+    } else if (body.get("metadata") instanceof Map<?, ?> vehicleMd) {
+      p.setMetadata(mergeVehicleProductMetadata(p.getMetadata(), vehicleMd));
+    } else if (p.getMetadata() == null) {
       p.setMetadata(objectMapper.createObjectNode());
     }
     Product savedProduct = productRepository.save(p);
@@ -769,17 +779,17 @@ public class AdminApiService {
                 p.getId(), String.valueOf(body.get("image"))));
       }
       if (body.get("imageAlt") != null) spec.setImageAlt(String.valueOf(body.get("imageAlt")));
-      List<Object> persistedGallery =
-          body.get("gallery") instanceof List<?> galleryRaw
-              ? uploadStorageService.persistGalleryIfDataUrls(
-                  p.getId(), galleryRaw.stream().map(x -> (Object) x).toList())
-              : List.of();
-      JsonNode gallery = objectMapper.valueToTree(persistedGallery);
-      spec.setGallery(gallery);
+      if (body.containsKey("gallery") && body.get("gallery") instanceof List<?> galleryRaw) {
+        List<Object> persistedGallery =
+            uploadStorageService.persistGalleryIfDataUrls(
+                p.getId(), galleryRaw.stream().map(x -> (Object) x).toList());
+        spec.setGallery(objectMapper.valueToTree(persistedGallery));
+      }
       if (spec.getCondition() == null) spec.setCondition("second-hand");
       vehicleSpecRepository.save(spec);
     }
     Product saved = productRepository.findById(p.getId()).orElseThrow();
+    lowStockAlertService.onStockChanged(saved, previousStock, saved.getStockQuantity());
     var fits =
         fitmentLabelRepository.findByProductIdIn(List.of(saved.getId())).stream()
             .map(ProductFitmentLabel::getLabel)
@@ -829,6 +839,57 @@ public class AdminApiService {
         String v = strOrNull(body.get(key));
         if (v != null && !v.isBlank()) meta.put(key, v);
         else meta.remove(key);
+      }
+    }
+    mergeStockCountersFromRequestMetadata(meta, body);
+    return meta;
+  }
+
+  /**
+   * Merges {@code stockIn}, {@code stockOut}, and {@code openingStock} from {@code body.metadata}
+   * (Add Product) without replacing unrelated metadata keys. Excel import sets these directly on
+   * the entity and does not use this path.
+   */
+  private void mergeStockCountersFromRequestMetadata(ObjectNode meta, Map<String, Object> body) {
+    if (!body.containsKey("metadata")) {
+      return;
+    }
+    Object raw = body.get("metadata");
+    if (!(raw instanceof Map<?, ?> md)) {
+      return;
+    }
+    for (String key : List.of("stockIn", "stockOut", "openingStock")) {
+      if (!md.containsKey(key)) {
+        continue;
+      }
+      Object v = md.get(key);
+      if (v == null) {
+        meta.remove(key);
+        continue;
+      }
+      Integer n = intFrom(v, (Integer) null);
+      if (n == null) {
+        continue;
+      }
+      meta.put(key, Math.max(0, n));
+    }
+  }
+
+  private ObjectNode mergeVehicleProductMetadata(JsonNode existing, Map<?, ?> fromBody) {
+    ObjectNode meta =
+        existing != null && existing.isObject()
+            ? (ObjectNode) existing.deepCopy()
+            : objectMapper.createObjectNode();
+    for (Map.Entry<?, ?> e : fromBody.entrySet()) {
+      if (e.getKey() == null) continue;
+      String key = String.valueOf(e.getKey());
+      Object v = e.getValue();
+      if (v == null) {
+        meta.remove(key);
+      } else if (v instanceof String s) {
+        meta.put(key, s);
+      } else {
+        meta.set(key, objectMapper.valueToTree(v));
       }
     }
     return meta;
@@ -945,6 +1006,7 @@ public class AdminApiService {
       p.setMetadata(meta);
 
       productRepository.save(p);
+      lowStockAlertService.onStockChanged(p, LowStockAlertService.NO_PRIOR_STOCK, p.getStockQuantity());
 
       // Fitment labels
       for (Map.Entry<String, String> fitment : Map.of(
@@ -1481,16 +1543,16 @@ public class AdminApiService {
 
   private CarDraft parseCarDraft(Map<String, Object> body) {
     String make =
-        CarIdentityNormalizer.normalizeDisplayText(
+        CarIdentityNormalizer.normalizeBrand(
             strOrNull(body.containsKey("brandName") ? body.get("brandName") : body.get("make")));
-    String model = CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("model")));
+    String model = CarIdentityNormalizer.normalizeIdentityField(strOrNull(body.get("model")));
     if (make == null) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "make is required");
     }
     if (model == null) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "model is required");
     }
-    String variant = CarIdentityNormalizer.normalizeDisplayText(strOrNull(body.get("variant")));
+    String variant = CarIdentityNormalizer.normalizeIdentityField(strOrNull(body.get("variant")));
     if (variant == null) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "variant is required");
     }
@@ -1699,6 +1761,7 @@ public class AdminApiService {
     m.put(
         "avatarUrl",
         userAvatarService.hasAvatar(u.getId()) ? userAvatarService.publicAvatarUrl(u.getId()) : "");
+    m.put("createdAt", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
     return m;
   }
 
@@ -1719,7 +1782,27 @@ public class AdminApiService {
     counts.put("delivered", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.delivered));
     counts.put("cancelled", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.cancelled));
     counts.put("refunded", orderRepository.countByUser_IdAndStatus(userId, OrderStatus.refunded));
+    counts.put("last7Days", buildCustomerOrderCountsLast7Days(userId));
     return counts;
+  }
+
+  private Map<String, Object> buildCustomerOrderCountsLast7Days(UUID userId) {
+    Instant since = Instant.now().minus(7, java.time.temporal.ChronoUnit.DAYS);
+    Map<String, Object> counts = new LinkedHashMap<>();
+    counts.put("recent", orderRepository.countByUser_IdAndPlacedAtGreaterThanEqual(userId, since));
+    counts.put("placed", countUserOrdersSince(userId, OrderStatus.placed, since));
+    counts.put("pending", countUserOrdersSince(userId, OrderStatus.draft, since));
+    counts.put("confirmed", countUserOrdersSince(userId, OrderStatus.confirmed, since));
+    counts.put("processing", countUserOrdersSince(userId, OrderStatus.processing, since));
+    counts.put("shipped", countUserOrdersSince(userId, OrderStatus.shipped, since));
+    counts.put("delivered", countUserOrdersSince(userId, OrderStatus.delivered, since));
+    counts.put("cancelled", countUserOrdersSince(userId, OrderStatus.cancelled, since));
+    counts.put("refunded", countUserOrdersSince(userId, OrderStatus.refunded, since));
+    return counts;
+  }
+
+  private long countUserOrdersSince(UUID userId, OrderStatus status, Instant since) {
+    return orderRepository.countByUser_IdAndStatusAndPlacedAtGreaterThanEqual(userId, status, since);
   }
 
   private Map<String, Object> buildEmployeeDeliveryCounts(String email) {

@@ -6,7 +6,7 @@ import * as notificationService from '../services/notificationService.js'
 import { requestPushSubscription } from '../lib/pushNotifications.js'
 import { subscribeAccessTokenChanged } from '../lib/authTokenEvents.js'
 
-const POLL_MS = 20_000
+const POLL_MS = 45_000
 
 export function NotificationProvider({ children }) {
   const location = useLocation()

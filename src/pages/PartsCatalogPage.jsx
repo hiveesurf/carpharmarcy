@@ -575,21 +575,34 @@ export function PartsCatalogPage() {
                 <span className="text-mist">Total</span>
                 <span className="text-lg font-semibold text-accent">{formatInr(subtotal)}</span>
               </div>
-              <Button
-                variant="primary"
-                size="md"
-                className="mt-4 w-full"
-                type="button"
-                disabled={lineItems.length === 0}
-                onClick={() => {
-                  window.alert('Demo checkout — no payment is processed. Thanks for trying carpharmacy.')
-                }}
-              >
-                Proceed to buy
-              </Button>
-              <Button variant="ghost" size="md" className="mt-2 w-full" type="button" onClick={openCart}>
-                Open full cart
-              </Button>
+              {useApi && lineItems.length > 0 ? (
+                user ? (
+                  <Link to="/checkout" className="mt-4 block">
+                    <Button variant="primary" size="md" className="w-full" type="button">
+                      Proceed to checkout
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="md"
+                    className="mt-4 w-full"
+                    type="button"
+                    onClick={() => openAuth()}
+                  >
+                    Sign in to checkout
+                  </Button>
+                )
+              ) : (
+                <Button variant="primary" size="md" className="mt-4 w-full" type="button" disabled>
+                  Proceed to checkout
+                </Button>
+              )}
+              <Link to="/cart" className="mt-2 block">
+                <Button variant="ghost" size="md" className="w-full" type="button">
+                  View full cart
+                </Button>
+              </Link>
             </div>
           </div>
         </aside>

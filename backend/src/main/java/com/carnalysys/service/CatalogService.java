@@ -189,7 +189,8 @@ public class CatalogService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listProductsPageForAdmin(int page, int pageSize, String sort) {
+  public Map<String, Object> listProductsPageForAdmin(
+      int page, int pageSize, String sort, String search, boolean lowStockOnly) {
     int size = Math.min(Math.max(pageSize, 1), 48);
     int p = Math.max(page, 0);
     Sort s =
@@ -197,15 +198,32 @@ public class CatalogService {
             ? Sort.by("updatedAt").descending()
             : Sort.by("createdAt").descending();
     Pageable pageable = PageRequest.of(p, size, s);
-    Page<Product> result = productRepository.findAll(pageable);
+    boolean hasSearch = search != null && !search.isBlank();
+    boolean useSpec = hasSearch || lowStockOnly;
+    Page<Product> result =
+        useSpec
+            ? productRepository.findAll(
+                AdminProductSpecifications.build(search, lowStockOnly), pageable)
+            : productRepository.findAll(pageable);
     List<Map<String, Object>> items = toAdminMaps(result.getContent());
+    long lowStockCount =
+        productRepository.countByDeletedAtIsNullAndStockQuantityLessThanEqual(
+            AdminProductSpecifications.LOW_STOCK_THRESHOLD);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("items", items);
     out.put("page", result.getNumber());
     out.put("pageSize", result.getSize());
     out.put("total", result.getTotalElements());
     out.put("totalPages", result.getTotalPages());
+    out.put("lowStockCount", lowStockCount);
+    out.put("lowStockThreshold", AdminProductSpecifications.LOW_STOCK_THRESHOLD);
     return out;
+  }
+
+  @Transactional(readOnly = true)
+  public long countLowStockForAdmin() {
+    return productRepository.countByDeletedAtIsNullAndStockQuantityLessThanEqual(
+        AdminProductSpecifications.LOW_STOCK_THRESHOLD);
   }
 
   @Transactional(readOnly = true)

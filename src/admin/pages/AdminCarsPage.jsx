@@ -4,6 +4,12 @@ import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 import { validateCarForm } from '../../lib/carFormValidation.js'
+import {
+  carIdentityKey,
+  dedupeBrandLabelsFromCars,
+  normalizeCarBrand,
+  normalizeCarIdentityField,
+} from '../../lib/carIdentityNormalize.js'
 
 const MAX_RAW_FILE = 12 * 1024 * 1024
 const PAGE_SIZE = 5
@@ -83,12 +89,13 @@ export function AdminCarsPage() {
     setEditErrors({})
   }, [])
 
-  const brands = useMemo(
-    () =>
-      [...new Set((allCars || []).map((c) => c.make).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
-    [allCars],
-  )
+  const brands = useMemo(() => dedupeBrandLabelsFromCars(allCars), [allCars])
+
+  useEffect(() => {
+    if (!brand) return
+    const match = brands.find((b) => carIdentityKey(b) === carIdentityKey(brand))
+    if (match && match !== brand) setBrand(match)
+  }, [brands, brand])
   async function loadCars(reset = true) {
     setLoading(true)
     setError(null)
@@ -287,9 +294,9 @@ export function AdminCarsPage() {
         return
       }
       setEditForm({
-        make: car.make ?? '',
-        model: car.model ?? '',
-        variant: car.variant ?? '',
+        make: normalizeCarBrand(car.make ?? ''),
+        model: normalizeCarIdentityField(car.model ?? ''),
+        variant: normalizeCarIdentityField(car.variant ?? ''),
         modelYear: car.modelYear ?? '',
         fuel: car.fuel ?? '',
         transmission: car.transmission ?? '',

@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client.js'
+import { apiGet, apiPatch, apiPost } from './client.js'
 
 export function userNotifications({ cursor, limit = 20, unreadOnly = false } = {}) {
   const q = new URLSearchParams()
@@ -28,8 +28,20 @@ export function adminNotifications({ cursor, limit = 20, unreadOnly = false } = 
   return apiGet(`/admin/notifications?${q.toString()}`)
 }
 
+export function adminNotificationsUnreadCount() {
+  return apiGet('/admin/notifications/unread-count')
+}
+
 export function adminMarkNotificationsRead({ ids = [], all = false } = {}) {
   return apiPost('/admin/notifications/read', { ids, all })
+}
+
+export function adminMarkNotificationRead(id) {
+  return apiPatch(`/admin/notifications/${encodeURIComponent(id)}/read`, {})
+}
+
+export function adminMarkAllNotificationsRead() {
+  return apiPatch('/admin/notifications/read-all', {})
 }
 
 export function adminSubscribePush(subscription) {

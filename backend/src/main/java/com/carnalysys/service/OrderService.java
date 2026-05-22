@@ -68,6 +68,7 @@ public class OrderService {
   private final UploadStorageService uploadStorageService;
   private final NotificationService notificationService;
   private final WhatsappService whatsappService;
+  private final LowStockAlertService lowStockAlertService;
 
   public OrderService(
       OrderRepository orderRepository,
@@ -83,7 +84,8 @@ public class OrderService {
       AdminUserRepository adminUserRepository,
       UploadStorageService uploadStorageService,
       NotificationService notificationService,
-      WhatsappService whatsappService) {
+      WhatsappService whatsappService,
+      LowStockAlertService lowStockAlertService) {
     this.orderRepository = orderRepository;
     this.orderLineRepository = orderLineRepository;
     this.addressRepository = addressRepository;
@@ -98,6 +100,7 @@ public class OrderService {
     this.uploadStorageService = uploadStorageService;
     this.notificationService = notificationService;
     this.whatsappService = whatsappService;
+    this.lowStockAlertService = lowStockAlertService;
   }
 
   @Transactional
@@ -691,13 +694,15 @@ public class OrderService {
       Product p = productsById.get(ci.getProduct().getId());
       if (p == null || !p.isPublished()) continue;
       if (p.getType() == ProductType.vehicle) continue;
-      int left = p.getStockQuantity() - ci.getQuantity();
+      int before = p.getStockQuantity();
+      int left = before - ci.getQuantity();
       if (left < 0) {
         throw new ApiException(
             HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "Insufficient stock for " + p.getName());
       }
       p.setStockQuantity(left);
       productRepository.save(p);
+      lowStockAlertService.onStockChanged(p, before, left);
     }
   }
 
@@ -745,13 +750,15 @@ public class OrderService {
     for (OrderLine ol : lines) {
       Product p = productsById.get(ol.getProductId());
       if (p == null || !p.isPublished() || p.getType() == ProductType.vehicle) continue;
-      int left = p.getStockQuantity() - ol.getQuantity();
+      int before = p.getStockQuantity();
+      int left = before - ol.getQuantity();
       if (left < 0) {
         throw new ApiException(
             HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", "Insufficient stock for " + p.getName());
       }
       p.setStockQuantity(left);
       productRepository.save(p);
+      lowStockAlertService.onStockChanged(p, before, left);
     }
     UUID userId = Objects.requireNonNull(order.getUser().getId(), "order user id");
     CartService.CartSnapshot snap =

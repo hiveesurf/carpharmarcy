@@ -53,7 +53,7 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void productsListOk() throws Exception {
-    when(adminApiService.listProductsPage(0, 20, "created_desc"))
+    when(adminApiService.listProductsPage(0, 20, "created_desc", null, false))
         .thenReturn(Map.of("items", List.of(), "page", 0));
     mockMvc
         .perform(get("/api/v1/admin/products").with(asAdmin()))

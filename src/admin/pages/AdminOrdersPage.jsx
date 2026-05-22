@@ -14,29 +14,17 @@ import {
 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
+import {
+  buildOrderSummaryCounts,
+  matchesStatusTab,
+  normalizeOrderStatus,
+  ORDER_STATUSES,
+  ORDER_STATUS_FILTERS,
+} from '../../lib/orderStatus.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { useAuth } from '../../context/useAuth.js'
 
-const STATUSES = [
-  'draft',
-  'placed',
-  'confirmed',
-  'processing',
-  'shipped',
-  'delivered',
-  'cancelled',
-  'refunded',
-]
-
-const ORDER_STATUS_FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'placed', label: 'Placed' },
-  { key: 'processing', label: 'Processing' },
-  { key: 'shipped', label: 'Shipped' },
-  { key: 'delivered', label: 'Delivered' },
-  { key: 'cancelled', label: 'Cancelled' },
-  { key: 'refund', label: 'Refund' },
-]
+const STATUSES = ORDER_STATUSES
 
 const PAGE_SIZE = 5
 const PHONE_SEARCH_DEBOUNCE_MS = 350
@@ -112,21 +100,6 @@ function formatDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
-}
-
-function normalizeOrderStatus(raw) {
-  const s = String(raw ?? '').trim().toLowerCase()
-  if (s === 'dispatched') return 'shipped'
-  return s
-}
-
-function matchesStatusTab(statusRaw, tabKey) {
-  const status = normalizeOrderStatus(statusRaw)
-  if (tabKey === 'all') return true
-  if (tabKey === 'refund') return status === 'refund' || status === 'refunded'
-  if (tabKey === 'placed') return status === 'placed' || status === 'created' || status === 'confirmed'
-  if (tabKey === 'delivered') return status === 'delivered' || status === 'deliverd'
-  return status === tabKey
 }
 
 function parseOrderDate(iso) {
@@ -232,37 +205,18 @@ function exportOrdersToCsv(orders, employeeByEmail, isDelivery) {
   URL.revokeObjectURL(url)
 }
 
-function buildOrderSummaryCounts(orders) {
-  const counts = {
-    total: orders.length,
-    placed: 0,
-    processing: 0,
-    shipped: 0,
-    delivered: 0,
-    cancelled: 0,
-    refund: 0,
-  }
-  for (const o of orders) {
-    const s = normalizeOrderStatus(o?.status)
-    if (s === 'refunded') counts.refund += 1
-    else if (matchesStatusTab(s, 'placed')) counts.placed += 1
-    else if (s === 'processing') counts.processing += 1
-    else if (s === 'shipped') counts.shipped += 1
-    else if (matchesStatusTab(s, 'delivered')) counts.delivered += 1
-    else if (s === 'cancelled') counts.cancelled += 1
-  }
-  return counts
-}
-
 const STATUS_BADGE_PILL =
   'inline-flex h-6 items-center justify-center rounded-full border px-2.5 text-[11px] font-medium capitalize leading-none'
 
 function orderStatusBadgeClass(status) {
   const s = normalizeOrderStatus(status)
   switch (s) {
+    case 'draft':
+      return 'border-amber-400/50 bg-amber-500/12 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/18 dark:text-amber-100'
     case 'placed':
-    case 'confirmed':
     case 'created':
+      return 'border-blue-400/50 bg-blue-500/12 text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/18 dark:text-blue-100'
+    case 'confirmed':
       return 'border-blue-400/50 bg-blue-500/12 text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/18 dark:text-blue-100'
     case 'processing':
       return 'border-amber-400/50 bg-amber-500/12 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/18 dark:text-amber-100'

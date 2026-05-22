@@ -100,6 +100,11 @@ class AdminApiServiceProfileTest {
     when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.delivered)).thenReturn(1L);
     when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.cancelled)).thenReturn(1L);
     when(orderRepository.countByUser_IdAndStatus(userId, OrderStatus.refunded)).thenReturn(0L);
+    when(orderRepository.countByUser_IdAndPlacedAtGreaterThanEqual(eq(userId), any(Instant.class)))
+        .thenReturn(2L);
+    when(orderRepository.countByUser_IdAndStatusAndPlacedAtGreaterThanEqual(
+            eq(userId), any(OrderStatus.class), any(Instant.class)))
+        .thenReturn(0L);
     OrderEntity order = new OrderEntity();
     order.setId("ord_1");
     order.setUser(user);
@@ -117,6 +122,10 @@ class AdminApiServiceProfileTest {
     @SuppressWarnings("unchecked")
     Map<String, Object> orderCounts = (Map<String, Object>) result.get("orderCounts");
     assertThat(orderCounts).containsEntry("total", 5L);
+    assertThat(orderCounts).containsKey("last7Days");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> last7 = (Map<String, Object>) orderCounts.get("last7Days");
+    assertThat(last7).containsEntry("recent", 2L);
     assertThat((List<?>) result.get("recentOrders")).hasSize(1);
   }
 

@@ -5,7 +5,7 @@ export function adminDashboard() {
 }
 
 /**
- * @param {{ page?: number, pageSize?: number, sort?: string }} [query]
+ * @param {{ page?: number, pageSize?: number, sort?: string, search?: string, lowStockOnly?: boolean }} [query]
  */
 export function adminListProducts(query = {}) {
   const page = query.page ?? 0
@@ -16,6 +16,9 @@ export function adminListProducts(query = {}) {
     pageSize: String(pageSize),
     sort: String(sort),
   })
+  const search = String(query.search ?? '').trim()
+  if (search) q.set('search', search)
+  if (query.lowStockOnly) q.set('lowStockOnly', 'true')
   return apiGet(`/admin/products?${q}`)
 }
 

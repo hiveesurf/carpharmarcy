@@ -1,5 +1,6 @@
 import * as adminApi from '../api/adminApi.js'
 import { apiV1Base } from '../api/client.js'
+import { buildAdminProductUpdateBody } from '../lib/adminProductUpdateBody.js'
 
 export async function dashboard() {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
@@ -8,8 +9,8 @@ export async function dashboard() {
 }
 
 /**
- * @param {{ page?: number, pageSize?: number, sort?: string }} [params]
- * @returns {Promise<{ items: unknown[], page: number, pageSize: number, total: number, totalPages: number }>}
+ * @param {{ page?: number, pageSize?: number, sort?: string, search?: string, lowStockOnly?: boolean }} [params]
+ * @returns {Promise<{ items: unknown[], page: number, pageSize: number, total: number, totalPages: number, lowStockCount: number, lowStockThreshold: number }>}
  */
 export async function listProductsPage(params = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
@@ -21,6 +22,8 @@ export async function listProductsPage(params = {}) {
     pageSize: typeof d.pageSize === 'number' ? d.pageSize : 20,
     total: typeof d.total === 'number' ? d.total : 0,
     totalPages: typeof d.totalPages === 'number' ? d.totalPages : 0,
+    lowStockCount: typeof d.lowStockCount === 'number' ? d.lowStockCount : 0,
+    lowStockThreshold: typeof d.lowStockThreshold === 'number' ? d.lowStockThreshold : 5,
     hasMore:
       typeof d.hasMore === 'boolean'
         ? d.hasMore
@@ -46,6 +49,23 @@ export async function updateProduct(id, body) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminUpdateProduct(id, body)
   return data?.product ?? null
+}
+
+/**
+ * Increases stock via existing PUT /admin/products/:id (loads product first for a safe full body).
+ * @param {string} productId
+ * @param {number} addQuantity positive integer
+ */
+export async function addProductStock(productId, addQuantity) {
+  const add = Math.floor(Number(addQuantity))
+  if (!Number.isFinite(add) || add < 1) {
+    throw new Error('Add quantity must be a positive integer (minimum 1).')
+  }
+  const current = await getProduct(productId)
+  if (!current?.id) throw new Error('Product not found')
+  const currentStock = Math.max(0, Math.floor(Number(current.totalStock ?? 0)))
+  const body = buildAdminProductUpdateBody(current, { totalStock: currentStock + add })
+  return updateProduct(productId, body)
 }
 
 export async function publishProduct(id, published) {

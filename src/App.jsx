@@ -24,6 +24,9 @@ import { CarsListPage } from './pages/CarsListPage'
 import { PartsCatalogPage } from './pages/PartsCatalogPage'
 import { AccountPage } from './pages/AccountPage'
 import { OrdersPage } from './pages/OrdersPage.jsx'
+import { CartPage } from './pages/CartPage.jsx'
+import { CheckoutPage } from './pages/CheckoutPage.jsx'
+import { OrderConfirmationPage } from './pages/OrderConfirmationPage.jsx'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { PolicyDocumentPage } from './pages/PolicyDocumentPage'
 
@@ -88,6 +91,9 @@ export default function App() {
       <SyncHeroReturnSession />
     <Routes>
       <Route path="/catalog" element={<AppShell><PartsCatalogPage /></AppShell>} />
+      <Route path="/cart" element={<AppShell><CartPage /></AppShell>} />
+      <Route path="/checkout" element={<AppShell><CheckoutPage /></AppShell>} />
+      <Route path="/orders/confirmation/:id" element={<AppShell><OrderConfirmationPage /></AppShell>} />
       <Route path="/account" element={<AppShell><AccountPage /></AppShell>} />
       <Route path="/orders" element={<AppShell><OrdersPage /></AppShell>} />
       <Route path="/favorites" element={<AppShell><FavoritesPage /></AppShell>} />

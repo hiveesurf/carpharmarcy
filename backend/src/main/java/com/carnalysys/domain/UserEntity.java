@@ -62,4 +62,12 @@ public class UserEntity {
   public void setRole(String role) {
     this.role = role != null ? role : "user";
   }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(Instant createdAt) {
+    this.createdAt = createdAt;
+  }
 }

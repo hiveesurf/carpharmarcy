@@ -29,4 +29,6 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
   List<Product> findAllByIdInForUpdate(List<String> ids);
 
   List<Product> findBySkuInAndDeletedAtIsNull(Collection<String> skus);
+
+  long countByDeletedAtIsNullAndStockQuantityLessThanEqual(int stockQuantity);
 }

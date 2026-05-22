@@ -16,6 +16,26 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
   boolean existsByRecipientTypeAndRecipientIdAndTopicAndSourceId(
       String recipientType, String recipientId, String topic, String sourceId);
 
+  @Query(
+      "select case when count(n) > 0 then true else false end from NotificationEntity n "
+          + "where n.recipientType = :recipientType and n.topic = :topic "
+          + "and n.sourceType = :sourceType and n.sourceId = :sourceId and n.readAt is null")
+  boolean existsUnreadByTopicAndSource(
+      @Param("recipientType") String recipientType,
+      @Param("topic") String topic,
+      @Param("sourceType") String sourceType,
+      @Param("sourceId") String sourceId);
+
+  @Query(
+      "select case when count(n) > 0 then true else false end from NotificationEntity n "
+          + "where n.recipientType = :recipientType and n.recipientId = :recipientId "
+          + "and n.topic = :topic and n.sourceId = :sourceId and n.readAt is null")
+  boolean existsUnreadForRecipientTopicAndSourceId(
+      @Param("recipientType") String recipientType,
+      @Param("recipientId") String recipientId,
+      @Param("topic") String topic,
+      @Param("sourceId") String sourceId);
+
   /**
    * Split queries avoid binding a nullable {@code Instant} cursor into {@code (? is null or ...)}
    * branches, which PostgreSQL rejects ("could not determine data type of parameter").

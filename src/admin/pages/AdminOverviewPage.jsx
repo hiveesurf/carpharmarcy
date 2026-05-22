@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio } from 'lucide-react'
+import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio, AlertTriangle } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { useAuth } from '../../context/useAuth.js'
@@ -318,6 +318,10 @@ export function AdminOverviewPage() {
   const top = Array.isArray(data?.topProducts) ? data.topProducts : []
   const chartRows = normalizeChartRows(data?.revenueVsPurchases)
   const stats = statMeta.filter((s) => !(isSales && (s.key === 'revenue' || s.key === 'purchaseValue')))
+  const lowStockCount = Number(data?.lowStockCount ?? 0)
+  const lowStockThreshold = Number(data?.lowStockThreshold ?? 5)
+  const showLowStockAlert =
+    !isDelivery && lowStockCount > 0 && (sessionRole === 'super_admin' || sessionRole === 'sales')
 
   return (
     <div className="space-y-8">
@@ -338,6 +342,24 @@ export function AdminOverviewPage() {
 
       {data && !error && (
         <>
+          {showLowStockAlert ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-start gap-2 text-sm text-fog">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-flare" strokeWidth={1.75} aria-hidden />
+                <span>
+                  <span className="font-medium text-flare">Low stock:</span> {lowStockCount} product
+                  {lowStockCount === 1 ? '' : 's'} at or below {lowStockThreshold} units.
+                </span>
+              </p>
+              <Link
+                to="/admin/products?lowStock=1"
+                className="shrink-0 self-start rounded-lg border border-flare/40 bg-ink/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-flare transition-colors hover:bg-flare-muted sm:self-center"
+              >
+                Review inventory
+              </Link>
+            </div>
+          ) : null}
+
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {stats.map(({ key, label, icon: Icon, accent, format }) => {
               const raw = data[key]

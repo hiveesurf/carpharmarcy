@@ -44,11 +44,14 @@ public class AdminV1Controller {
       HttpServletRequest req,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize,
-      @RequestParam(required = false) String sort) {
+      @RequestParam(required = false) String sort,
+      @RequestParam(required = false) String search,
+      @RequestParam(name = "lowStockOnly", required = false) Boolean lowStockOnly) {
     int p = page != null ? page : 0;
     int size = pageSize != null ? pageSize : 20;
     String s = sort != null && !sort.isBlank() ? sort : "created_desc";
-    return ApiResponses.ok(req, adminApiService.listProductsPage(p, size, s));
+    boolean lowStock = Boolean.TRUE.equals(lowStockOnly);
+    return ApiResponses.ok(req, adminApiService.listProductsPage(p, size, s, search, lowStock));
   }
 
   @GetMapping("/cars")
@@ -292,6 +295,14 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, Map.of("items", adminApiService.productAuditHistory(id)));
   }
 
+  @GetMapping("/notifications/unread-count")
+  public ApiEnvelope<Map<String, Object>> notificationsUnreadCount(HttpServletRequest req) {
+    String recipientId = resolveAdminNotificationRecipientId();
+    long count =
+        notificationService.unreadCount(NotificationService.RECIPIENT_ADMIN, recipientId);
+    return ApiResponses.ok(req, Map.of("unreadCount", count));
+  }
+
   @GetMapping("/notifications")
   public ApiEnvelope<Map<String, Object>> notifications(
       HttpServletRequest req,
@@ -325,6 +336,21 @@ public class AdminV1Controller {
   @PostMapping("/notifications/read")
   public ApiEnvelope<Map<String, Object>> markRead(
       HttpServletRequest req, @RequestBody(required = false) Map<String, Object> body) {
+    return ApiResponses.ok(req, markNotificationsRead(body));
+  }
+
+  @PatchMapping("/notifications/read-all")
+  public ApiEnvelope<Map<String, Object>> markAllReadPatch(HttpServletRequest req) {
+    return ApiResponses.ok(req, markNotificationsRead(Map.of("all", true)));
+  }
+
+  @PatchMapping("/notifications/{id}/read")
+  public ApiEnvelope<Map<String, Object>> markOneReadPatch(
+      HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, markNotificationsRead(Map.of("ids", java.util.List.of(id))));
+  }
+
+  private Map<String, Object> markNotificationsRead(Map<String, Object> body) {
     String recipientId = resolveAdminNotificationRecipientId();
     boolean all = body != null && Boolean.TRUE.equals(body.get("all"));
     @SuppressWarnings("unchecked")
@@ -335,7 +361,7 @@ public class AdminV1Controller {
     int changed =
         notificationService.markRead(
             NotificationService.RECIPIENT_ADMIN, recipientId, ids, all);
-    return ApiResponses.ok(req, Map.of("updated", changed));
+    return Map.of("updated", changed);
   }
 
   @PostMapping("/notifications/push/subscribe")

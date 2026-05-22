@@ -35,6 +35,9 @@ public class NotificationService {
   /** In-app alert to super_admin + sales when an order is marked delivered. */
   public static final String TOPIC_ADMIN_DELIVERY_COMPLETED = "admin_delivery_completed";
 
+  /** In-app alert when a product's stock falls to the low-stock threshold. */
+  public static final String TOPIC_ADMIN_LOW_STOCK = "admin_low_stock";
+
   private final NotificationRepository notificationRepository;
   private final PushSubscriptionRepository pushSubscriptionRepository;
   private final AdminUserRepository adminUserRepository;
@@ -98,6 +101,92 @@ public class NotificationService {
         TOPIC_ADMIN_NEW_ORDER, title, body, "order", orderId, Map.of("orderId", orderId));
   }
 
+  @Transactional(readOnly = true)
+  public boolean hasUnreadLowStockForProduct(String productId) {
+    if (productId == null || productId.isBlank()) {
+      return false;
+    }
+    return notificationRepository.existsUnreadByTopicAndSource(
+        RECIPIENT_ADMIN, TOPIC_ADMIN_LOW_STOCK, "product", productId);
+  }
+
+  /**
+   * Notifies super_admin and sales when inventory is low. Does not use permanent order-style dedup;
+   * callers enforce cross-threshold / cooldown rules.
+   */
+  @Transactional
+  public void notifySuperAdminAndSalesLowStock(
+      String productId,
+      String productName,
+      String sku,
+      int currentStock,
+      int threshold,
+      String severity) {
+    notifySuperAdminAndSalesLowStock(
+        productId, productName, sku, currentStock, threshold, severity, false);
+  }
+
+  @Transactional
+  public void notifySuperAdminAndSalesLowStock(
+      String productId,
+      String productName,
+      String sku,
+      int currentStock,
+      int threshold,
+      String severity,
+      boolean bypassUnreadDedup) {
+    if (productId == null || productId.isBlank()) {
+      return;
+    }
+    String title = "Low stock alert";
+    String body =
+        String.format(
+            "%s (%s) has only %d units left.",
+            productName != null ? productName : "Product",
+            sku != null ? sku : productId,
+            currentStock);
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("type", "LOW_STOCK");
+    payload.put("productId", productId);
+    payload.put("sku", sku);
+    payload.put("currentStock", currentStock);
+    payload.put("threshold", threshold);
+    payload.put("severity", severity != null ? severity : "warning");
+    payload.put("read", false);
+
+    LinkedHashSet<String> emails = new LinkedHashSet<>();
+    collectEmailsForRole("super_admin", emails);
+    collectEmailsForRole("sales", emails);
+    int created = 0;
+    int skipped = 0;
+    for (String email : emails) {
+      String rid = email.trim().toLowerCase();
+      if (!bypassUnreadDedup
+          && notificationRepository.existsUnreadForRecipientTopicAndSourceId(
+              RECIPIENT_ADMIN, rid, TOPIC_ADMIN_LOW_STOCK, productId)) {
+        skipped++;
+        log.info(
+            "Low-stock in-app notification skipped for {} (unread exists): productId={}",
+            rid,
+            productId);
+        continue;
+      }
+      notifyAdminEmail(
+          rid, TOPIC_ADMIN_LOW_STOCK, title, body, "product", productId, payload);
+      created++;
+      log.info(
+          "Low-stock in-app notification created: recipientId={}, productId={}, stock={}",
+          rid,
+          productId,
+          currentStock);
+    }
+    log.info(
+        "Low-stock in-app broadcast done: productId={}, created={}, skipped={}",
+        productId,
+        created,
+        skipped);
+  }
+
   @Transactional
   public void notifySuperAdminAndSalesDeliveryCompleted(String orderId) {
     if (orderId == null || orderId.isBlank()) return;
@@ -152,6 +241,15 @@ public class NotificationService {
       return;
     }
     notifyAdminEmail(rid, topic, title, body, sourceType, sourceId, payload);
+  }
+
+  @Transactional(readOnly = true)
+  public long unreadCount(String recipientType, String recipientId) {
+    if (recipientId == null || recipientId.isBlank()) {
+      return 0L;
+    }
+    return notificationRepository.countByRecipientTypeAndRecipientIdAndReadAtIsNull(
+        recipientType, recipientId);
   }
 
   @Transactional(readOnly = true)

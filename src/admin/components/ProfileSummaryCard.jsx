@@ -6,23 +6,31 @@ export function ProfileSummaryCard({
   className = '',
   variant = 'default',
   icon: Icon,
+  sublabel,
 }) {
   if (variant === 'seller') {
     const base =
-      'group relative flex w-full flex-col rounded-lg border bg-white px-3 py-3 text-left shadow-sm transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007185]/40 focus-visible:ring-offset-2 dark:bg-slate dark:shadow-none'
+      'group relative flex w-full flex-col rounded-lg border bg-white px-3 py-3 text-left shadow-sm transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 dark:bg-slate dark:shadow-none'
     const state = active
-      ? 'border-2 border-[#007185] bg-[#e7f4f5] shadow-md dark:border-[#48a6b8] dark:bg-[#1a3a42]'
-      : 'border-[#d5d9d9] hover:border-[#007185]/50 hover:shadow-md dark:border-steel/60 dark:hover:border-[#48a6b8]/50'
+      ? 'border-2 border-accent bg-accent-muted shadow-md dark:border-accent dark:bg-accent-muted/30'
+      : 'border-[#d5d9d9] hover:border-accent/50 hover:shadow-md dark:border-steel/60 dark:hover:border-accent/50'
 
     return (
       <button type="button" onClick={onClick} className={`${base} ${state} ${className}`.trim()}>
         <div className="flex items-start justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6f7373] dark:text-mist">
-            {label}
-          </p>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6f7373] dark:text-mist">
+              {label}
+            </p>
+            {sublabel ? (
+              <p className="mt-0.5 text-[9px] font-normal normal-case tracking-normal text-accent">
+                {sublabel}
+              </p>
+            ) : null}
+          </div>
           {Icon ? (
             <Icon
-              className={`h-4 w-4 shrink-0 ${active ? 'text-[#007185] dark:text-[#48a6b8]' : 'text-[#aab7b8] dark:text-mist'}`}
+              className={`h-4 w-4 shrink-0 ${active ? 'text-accent' : 'text-[#aab7b8] dark:text-mist'}`}
               strokeWidth={2}
               aria-hidden
             />

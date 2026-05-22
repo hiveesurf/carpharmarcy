@@ -40,10 +40,6 @@ export function AuthModals() {
     const r = await sendOtp(phone)
     if (!r.ok) setMessage(r.message)
     else {
-      if (import.meta.env.DEV && r?.data?.demoOtp) {
-        // LOCAL DEV ONLY - remove before production
-        setMessage(`Demo OTP: ${r.data.demoOtp}`)
-      }
       setStep('otp')
     }
   }
@@ -90,9 +86,6 @@ export function AuthModals() {
                 <h2 id="auth-title" className="font-display text-2xl font-bold uppercase tracking-wide text-fog">
                   Sign in
                 </h2>
-                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-mist">
-                  Phone OTP · demo code 123456
-                </p>
               </div>
               <button
                 type="button"
@@ -147,7 +140,7 @@ export function AuthModals() {
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     className="w-full border border-fog/15 bg-ink/50 px-3 py-2.5 font-sans text-fog outline-none focus:border-accent/50 tracking-[0.3em]"
-                    placeholder="123456"
+                    placeholder="Enter code"
                   />
                 </div>
                 <Button variant="primary" size="md" className="w-full" type="submit">

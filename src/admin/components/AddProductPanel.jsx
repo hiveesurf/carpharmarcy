@@ -3,6 +3,12 @@ import { ChevronDown, ChevronUp, ImagePlus, Plus, Trash2 } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
+import {
+  carIdentityKey,
+  dedupeBrandLabelsFromCars,
+  normalizeCarBrand,
+} from '../../lib/carIdentityNormalize.js'
+import { SaveSuccessNotice } from './SaveSuccessNotice.jsx'
 
 const MAX_RAW_FILE = 12 * 1024 * 1024
 
@@ -30,6 +36,7 @@ export function AddProductPanel({ onCreated }) {
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [saveSuccessOpen, setSaveSuccessOpen] = useState(false)
   const [vehicleMake, setVehicleMake] = useState('')
   const [vehicleModel, setVehicleModel] = useState('')
   const [vehicleYear, setVehicleYear] = useState('')
@@ -80,17 +87,26 @@ export function AddProductPanel({ onCreated }) {
     return [...new Set(values.filter((v) => v != null && String(v).trim() !== '').map((v) => String(v).trim()))]
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [])
-  const makeOptions = useMemo(() => uniqueSorted(cars.map((car) => car.make)), [cars, uniqueSorted])
+  // Brand/make: case-insensitive dedupe for UI only; each car row stays separate by id in DB and compatibleCarIds.
+  const makeOptions = useMemo(() => dedupeBrandLabelsFromCars(cars), [cars])
   const filteredMakeOptions = useMemo(() => {
     const q = makeInput.trim().toLowerCase()
     if (!q) return makeOptions
     return makeOptions.filter((m) => m.toLowerCase().includes(q))
   }, [makeInput, makeOptions])
-  const carsByMake = useMemo(() => (vehicleMake ? cars.filter((car) => String(car.make || '').trim() === vehicleMake) : []), [cars, vehicleMake])
+  const carsByMake = useMemo(() => {
+    if (!vehicleMake) return []
+    const makeKey = carIdentityKey(vehicleMake)
+    return cars.filter((car) => carIdentityKey(car.make) === makeKey)
+  }, [cars, vehicleMake])
   const modelOptions = useMemo(() => uniqueSorted(carsByMake.map((car) => car.model)), [carsByMake, uniqueSorted])
   const carsByMakeModel = useMemo(() => {
     if (!vehicleMake || !vehicleModel) return []
-    return cars.filter((car) => String(car.make || '').trim() === vehicleMake && String(car.model || '').trim() === vehicleModel)
+    const makeKey = carIdentityKey(vehicleMake)
+    return cars.filter(
+      (car) =>
+        carIdentityKey(car.make) === makeKey && String(car.model || '').trim() === vehicleModel,
+    )
   }, [cars, vehicleMake, vehicleModel])
   const yearOptions = useMemo(() => uniqueSorted(carsByMakeModel.map((car) => car.modelYear)), [carsByMakeModel, uniqueSorted])
   const variantOptions = useMemo(() => uniqueSorted(carsByMakeModel.map((car) => car.variant)), [carsByMakeModel, uniqueSorted])
@@ -316,8 +332,9 @@ export function AddProductPanel({ onCreated }) {
       setVehicleError('Select at least Vehicle Make and Vehicle Model.')
       return
     }
+    const makeKey = carIdentityKey(vehicleMake)
     const matches = cars.filter((car) => {
-      if (String(car.make || '').trim() !== vehicleMake) return false
+      if (carIdentityKey(car.make) !== makeKey) return false
       if (String(car.model || '').trim() !== vehicleModel) return false
       if (vehicleYear && String(car.modelYear ?? '').trim() !== vehicleYear) return false
       if (vehicleVariant && String(car.variant || '').trim() !== vehicleVariant) return false
@@ -490,7 +507,8 @@ export function AddProductPanel({ onCreated }) {
       if (product) {
         onCreated?.(product)
         resetFormAfterCreate()
-        setMsg({ type: 'ok', text: `Product “${product.name}” created.` })
+        setOpen(false)
+        setSaveSuccessOpen(true)
       }
     } catch (err) {
       setMsg({ type: 'err', text: getFetchErrorMessage(err) })
@@ -500,6 +518,8 @@ export function AddProductPanel({ onCreated }) {
   }
 
   return (
+    <>
+    <SaveSuccessNotice open={saveSuccessOpen} onDismiss={() => setSaveSuccessOpen(false)} />
     <section className="admin-card">
       <button
         type="button"
@@ -550,7 +570,13 @@ export function AddProductPanel({ onCreated }) {
               </div>
               <div>
                 <label className={labelClass}>Part Number</label>
-                <input required value={partNumber} onChange={(e) => setPartNumber(e.target.value)} className={inputClass} />
+                <input
+                  type="text"
+                  required
+                  value={partNumber}
+                  onChange={(e) => setPartNumber(e.target.value)}
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Brand</label>
@@ -562,7 +588,12 @@ export function AddProductPanel({ onCreated }) {
               </div>
               <div>
                 <label className={labelClass}>Supplier Name</label>
-                <input required value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={inputClass} />
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Purchase Price</label>
@@ -962,7 +993,7 @@ export function AddProductPanel({ onCreated }) {
                     ) : (
                       selectedCars.map((car) => (
                         <tr key={car.id}>
-                          <td className="px-2 py-2">{car.make || '—'}</td>
+                          <td className="px-2 py-2">{normalizeCarBrand(car.make) || '—'}</td>
                           <td className="px-2 py-2">{car.model || '—'}</td>
                           <td className="px-2 py-2">{car.modelYear ?? '—'}</td>
                           <td className="px-2 py-2">{car.variant || '—'}</td>
@@ -1084,5 +1115,6 @@ export function AddProductPanel({ onCreated }) {
         </div>
       )}
     </section>
+    </>
   )
 }

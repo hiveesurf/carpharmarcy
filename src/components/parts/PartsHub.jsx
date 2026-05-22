@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronRight, Heart, Search } from 'lucide-react'
 import {
@@ -47,7 +47,8 @@ export function PartsHub() {
   const [detailRemote, setDetailRemote] = useState(null)
   const [detailRetryKey, setDetailRetryKey] = useState(0)
   const [wishIds, setWishIds] = useState(() => new Set())
-  const { getQty, openCart } = useCart()
+  const navigate = useNavigate()
+  const { getQty, addToCart } = useCart()
 
   const catalogReady = useApi ? !apiLoading : catalogReadyLocal
 
@@ -405,7 +406,21 @@ export function PartsHub() {
                         />
                         <button
                           type="button"
-                          onClick={openCart}
+                          disabled={!canAdd}
+                          onClick={async () => {
+                            if (!useApi) {
+                              openAuth()
+                              return
+                            }
+                            if (!user) {
+                              openAuth()
+                              return
+                            }
+                            if (getQty(part.id) <= 0) {
+                              await addToCart(part.id, 1)
+                            }
+                            navigate('/checkout')
+                          }}
                           className={`${PART_CARD_CTA_PILL} min-w-0 flex-1 basis-0`}
                         >
                           Buy now

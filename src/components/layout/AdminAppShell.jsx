@@ -4,6 +4,10 @@ import { AuthModals } from '../auth/AuthModals'
 import { useAuth } from '../../context/useAuth'
 import { useNotifications } from '../../context/useNotifications.js'
 import { formatPublicIdentityLabel } from '../../lib/identityDisplayLabel.js'
+import {
+  adminNotificationTargetPath,
+  isAdminLowStockNotification,
+} from '../../lib/adminNotificationLinks.js'
 
 /**
  * Admin area only: no storefront navbar/hero/footer — full dashboard after login.
@@ -65,13 +69,19 @@ export function AdminAppShell({ children }) {
                     <p className="text-xs text-mist">No notifications yet.</p>
                   ) : (
                     items.map((n) => {
-                      const orderLinked =
-                        n?.sourceType === 'order' ||
-                        n?.topic === 'admin_new_order' ||
-                        n?.topic === 'admin_delivery_completed' ||
-                        n?.topic === 'admin_alerts'
+                      const targetPath = adminNotificationTargetPath(n)
+                      const isCritical =
+                        n?.payload?.severity === 'critical' ||
+                        (isAdminLowStockNotification(n) && Number(n?.payload?.currentStock ?? 1) <= 0)
                       return (
-                        <article key={n.id} className="rounded-lg border border-steel/60 bg-slate/30 p-2.5">
+                        <article
+                          key={n.id}
+                          className={`rounded-lg border p-2.5 ${
+                            isCritical
+                              ? 'border-flare/50 bg-flare-muted/40'
+                              : 'border-steel/60 bg-slate/30'
+                          }`}
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <p className="min-w-0 flex-1 text-xs font-semibold text-fog">{n.title}</p>
                             <button
@@ -83,16 +93,17 @@ export function AdminAppShell({ children }) {
                             </button>
                           </div>
                           <p className="mt-1 text-xs text-mist">{n.body}</p>
-                          {orderLinked && n?.sourceId ? (
+                          {targetPath ? (
                             <button
                               type="button"
                               onClick={() => {
+                                void markReadByIds([n.id])
                                 setPanelOpen(false)
-                                navigate('/admin/orders')
+                                navigate(targetPath)
                               }}
                               className="mt-2 font-sans text-[11px] font-semibold text-accent hover:underline"
                             >
-                              Open orders
+                              {isAdminLowStockNotification(n) ? 'View low stock' : 'Open orders'}
                             </button>
                           ) : null}
                         </article>

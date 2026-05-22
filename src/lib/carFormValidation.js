@@ -1,8 +1,10 @@
-/** Trim and collapse internal whitespace. */
-export function normalizeCarText(value) {
-  if (value == null) return ''
-  return String(value).trim().replace(/\s+/g, ' ')
-}
+import {
+  normalizeCarBrand,
+  normalizeCarIdentityField,
+  normalizeCarText,
+} from './carIdentityNormalize.js'
+
+export { normalizeCarText } from './carIdentityNormalize.js'
 
 /**
  * @param {string|number|null|undefined} raw
@@ -30,9 +32,9 @@ export function parsePositiveCarYear(raw) {
  */
 export function validateCarForm(fields, catalog) {
   const errors = {}
-  const make = normalizeCarText(fields.make)
-  const model = normalizeCarText(fields.model)
-  const variant = normalizeCarText(fields.variant)
+  const make = normalizeCarBrand(fields.make)
+  const model = normalizeCarIdentityField(fields.model)
+  const variant = normalizeCarIdentityField(fields.variant)
   const fuel = normalizeCarText(fields.fuel)
   const transmission = normalizeCarText(fields.transmission)
 

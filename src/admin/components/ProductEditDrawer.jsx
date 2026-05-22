@@ -6,26 +6,9 @@ import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 import { VehicleMultiSelect } from './VehicleMultiSelect.jsx'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
+import { buildAdminProductUpdateBody, metadataFromProduct } from '../../lib/adminProductUpdateBody.js'
 
 const MAX_RAW = 12 * 1024 * 1024
-
-/** Normalizes `product.metadata` to a plain object (API may send object or JSON string). */
-function metadataFromProduct(product) {
-  if (!product || typeof product !== 'object') return {}
-  const raw = product.metadata
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...raw }
-  }
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {}
-    } catch {
-      return {}
-    }
-  }
-  return {}
-}
 
 function galleryFromProduct(p) {
   const g = p?.gallery
@@ -69,6 +52,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
   const [partNumber, setPartNumber] = useState('')
   const [unitVolume, setUnitVolume] = useState('')
   const [supplierName, setSupplierName] = useState('')
+  const [vehicleBrand, setVehicleBrand] = useState('')
 
   const load = useCallback(async () => {
     if (!productId) return
@@ -89,6 +73,19 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !saving) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose, saving])
 
   useEffect(() => {
     adminService
@@ -125,6 +122,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     setPartNumber(String(p.partNumber ?? md.partNumber ?? ''))
     setUnitVolume(String(p.unitVolume ?? md.unitVolume ?? ''))
     setSupplierName(String(p.supplierName ?? md.supplierName ?? ''))
+    setVehicleBrand(p.type === 'vehicle' ? String(p.brand ?? md.brand ?? '') : '')
   }, [p])
 
   async function onPrimaryFile(ev) {
@@ -186,6 +184,39 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     }
   }
 
+  async function saveVehicle(e) {
+    e.preventDefault()
+    if (!p || p.type !== 'vehicle') return
+    const cat = categoryName.trim()
+    if (!cat) {
+      setErr('Category is required.')
+      return
+    }
+    setSaving(true)
+    setErr(null)
+    try {
+      const body = buildAdminProductUpdateBody(p, {
+        name: name.trim(),
+        sku: sku.trim(),
+        category: cat,
+        price: Number(actualPrice) || 0,
+        purchasePrice: Number(purchasePrice) || 0,
+        totalStock: Number(stock) || 0,
+        published,
+        metadata: { ...metadataFromProduct(p), brand: vehicleBrand.trim() },
+      })
+      const updated = await adminService.updateProduct(p.id, body)
+      if (updated) {
+        onSaved?.(updated, { formSave: true })
+        onClose()
+      }
+    } catch (e) {
+      setErr(getFetchErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function saveAll(e) {
     e.preventDefault()
     if (!p || p.type !== 'part') return
@@ -225,9 +256,8 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
     try {
       const updated = await adminService.updateProduct(p.id, payload)
       if (updated) {
-        onSaved?.(updated)
-        setP(updated)
-        setErr(null)
+        onSaved?.(updated, { formSave: true })
+        onClose()
       }
     } catch (e) {
       setErr(getFetchErrorMessage(e))
@@ -239,64 +269,183 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
   const inputClass =
     'w-full border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog outline-none focus:border-accent/60'
 
+  const isVehicle = p?.type === 'vehicle'
+  const isPart = p?.type === 'part'
+
+  function renderCategoryField() {
+    return (
+      <div>
+        <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Category</label>
+        <select value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className={inputClass}>
+          <option value="">Select category</option>
+          {Array.isArray(categories) &&
+            categories.map((c) => (
+              <option key={c.id} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          {categoryName && !categories?.some((c) => c.name === categoryName) && (
+            <option value={categoryName}>{categoryName}</option>
+          )}
+        </select>
+      </div>
+    )
+  }
+
+  function renderPublishSection() {
+    if (!p) return null
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={saving || p.deleted}
+            onClick={togglePublishQuick}
+            className="inline-flex items-center gap-2 rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:opacity-50"
+          >
+            {published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {published ? 'Unpublish' : 'Publish'} (DB)
+          </button>
+          <span className="font-mono text-[10px] text-mist">
+            {p.deleted ? 'Product is deleted' : published ? 'Visible in catalog' : 'Hidden from catalog'}
+          </span>
+        </div>
+        {p.deleted ? (
+          <p className="rounded-xl border border-flare/40 bg-flare-muted px-3 py-2 text-xs text-fog">
+            This product is soft deleted. Publishing and save actions are disabled.
+          </p>
+        ) : null}
+        <label className="flex items-center gap-2 font-sans text-sm text-fog">
+          <input
+            type="checkbox"
+            checked={published}
+            onChange={(e) => setPublished(e.target.checked)}
+            disabled={p.deleted}
+          />
+          Published when saving
+        </label>
+      </>
+    )
+  }
+
   if (!productId) return null
 
   return (
-    <div className="fixed inset-0 z-[90] flex justify-end bg-ink/70 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <div className="flex h-full w-full max-w-lg flex-col border-l border-steel/60 bg-slate shadow-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-steel/50 px-4 py-3">
-          <h2 className="font-display text-lg font-bold uppercase tracking-tight text-fog">Edit product</h2>
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-ink/70 p-3 backdrop-blur-sm sm:p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-[min(100%,52.5rem)] flex-col overflow-hidden rounded-2xl border border-steel/60 bg-slate shadow-[0_25px_50px_-12px_rgba(0,0,0,0.45)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-edit-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-steel/50 px-4 py-3 sm:px-5">
+          <h2
+            id="product-edit-title"
+            className="font-display text-base font-bold uppercase tracking-tight text-fog sm:text-lg"
+          >
+            {isVehicle ? 'Edit vehicle' : 'Edit product'}
+          </h2>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-steel/60 text-fog hover:bg-steel/30"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-steel/60 text-fog hover:bg-steel/30 sm:h-10 sm:w-10"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
           {loading && <p className="font-mono text-xs text-mist">Loading…</p>}
           {err && (
             <div className="mb-4 rounded-xl border border-flare/40 bg-flare-muted px-3 py-2 text-sm text-fog">{err}</div>
           )}
 
-          {!loading && p && p.type !== 'part' && (
-            <p className="text-sm text-mist">Only part-type products can be edited in this form. (ID: {p.id})</p>
+          {!loading && p && isVehicle && (
+            <form onSubmit={saveVehicle} className="space-y-4">
+              <p className="rounded-xl border border-steel/50 bg-ink/20 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-mist">
+                Vehicle listing · SKU {p.sku ?? p.id}
+              </p>
+              {renderPublishSection()}
+              <div>
+                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Name</label>
+                <input required value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">SKU</label>
+                <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Brand</label>
+                <input value={vehicleBrand} onChange={(e) => setVehicleBrand(e.target.value)} className={inputClass} />
+              </div>
+              {renderCategoryField()}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Selling price (INR)</label>
+                  <input required type="number" min={0} value={actualPrice} onChange={(e) => setActualPrice(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Purchase price (INR)</label>
+                  <input type="number" min={0} value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} className={inputClass} />
+                </div>
+                <div className="col-span-2">
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Stock</label>
+                  <input required type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              {p.carMeta && typeof p.carMeta === 'object' ? (
+                <div className="rounded-xl border border-steel/50 bg-ink/20 p-3 text-xs text-mist">
+                  <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-hud">Vehicle details (catalog)</p>
+                  <ul className="space-y-0.5 text-fog">
+                    {p.carMeta.year != null ? <li>Year: {String(p.carMeta.year)}</li> : null}
+                    {p.carMeta.fuel ? <li>Fuel: {String(p.carMeta.fuel)}</li> : null}
+                    {p.carMeta.transmission ? <li>Transmission: {String(p.carMeta.transmission)}</li> : null}
+                    {p.carMeta.km != null ? <li>Km: {String(p.carMeta.km)}</li> : null}
+                    {p.carMeta.location ? <li>Location: {String(p.carMeta.location)}</li> : null}
+                  </ul>
+                  <p className="mt-2 text-[11px]">Edit full vehicle specs from Admin → Cars if needed.</p>
+                </div>
+              ) : null}
+              <div className="rounded-xl border border-steel/50 bg-ink/20 p-3">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">Change history</p>
+                {auditRows.length === 0 ? (
+                  <p className="text-xs text-mist">No audit events yet.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {auditRows.slice(0, 8).map((row) => (
+                      <li key={row.id} className="text-xs text-mist">
+                        <span className="uppercase text-fog">{row.action}</span> by {row.actorName || row.actorId || 'system'} ({row.actorRole}) at{' '}
+                        {row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving || p.deleted}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 font-display text-sm font-bold uppercase tracking-wide text-on-accent disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" />
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+                <button type="button" onClick={onClose} className="rounded-xl border border-steel/60 px-4 py-2 text-sm text-mist">
+                  Cancel
+                </button>
+              </div>
+            </form>
           )}
 
-          {!loading && p && p.type === 'part' && (
+          {!loading && p && isPart && (
             <form onSubmit={saveAll} className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={saving || p.deleted}
-                  onClick={togglePublishQuick}
-                  className="inline-flex items-center gap-2 rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:opacity-50"
-                >
-                  {published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  {published ? 'Unpublish' : 'Publish'} (DB)
-                </button>
-                <span className="font-mono text-[10px] text-mist">
-                  {p.deleted ? 'Product is deleted' : published ? 'Visible in catalog' : 'Hidden from catalog'}
-                </span>
-              </div>
-              {p.deleted ? (
-                <p className="rounded-xl border border-flare/40 bg-flare-muted px-3 py-2 text-xs text-fog">
-                  This product is soft deleted. Publishing and save actions are disabled.
-                </p>
-              ) : null}
-
-              <label className="flex items-center gap-2 font-sans text-sm text-fog">
-                <input
-                  type="checkbox"
-                  checked={published}
-                  onChange={(e) => setPublished(e.target.checked)}
-                  disabled={p.deleted}
-                />
-                Published when saving
-              </label>
+              {renderPublishSection()}
 
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Name</label>
@@ -338,22 +487,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
                   <input required type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} className={inputClass} />
                 </div>
               </div>
-              <div>
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Category</label>
-                <select value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className={inputClass}>
-                  <option value="">Select category</option>
-                  {Array.isArray(categories) &&
-                    categories.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  {categoryName &&
-                    !categories?.some((c) => c.name === categoryName) && (
-                      <option value={categoryName}>{categoryName}</option>
-                    )}
-                </select>
-              </div>
+              {renderCategoryField()}
               <div>
                 <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">Preset image key</label>
                 <select value={imageKey} onChange={(e) => setImageKey(e.target.value)} className={inputClass}>
@@ -495,7 +629,7 @@ export function ProductEditDrawer({ productId, categories, onClose, onSaved }) {
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 font-display text-sm font-bold uppercase tracking-wide text-on-accent disabled:opacity-50"
                 >
                   <Save className="h-4 w-4" />
-                  {saving ? 'Saving…' : 'Save to database'}
+                  {saving ? 'Saving…' : 'Save'}
                 </button>
                 <button type="button" onClick={onClose} className="rounded-xl border border-steel/60 px-4 py-2 text-sm text-mist">
                   Cancel
