@@ -73,6 +73,10 @@ export function adminListOrders({ page = 0, size = 5, phone } = {}) {
   return apiGet(`/admin/orders?${q.toString()}`)
 }
 
+export function adminGetOrder(id) {
+  return apiGet(`/admin/orders/${encodeURIComponent(id)}`)
+}
+
 export function adminListCars(query = {}) {
   const q = new URLSearchParams()
   q.set('page', String(query.page ?? 0))
@@ -126,10 +130,12 @@ export function adminGetUserProfile(id) {
   return apiGet(`/admin/users/${encodeURIComponent(id)}/profile`)
 }
 
-export function adminListEmployees({ page = 0, size = 5 } = {}) {
+export function adminListEmployees({ page = 0, size = 5, deleted } = {}) {
   const q = new URLSearchParams()
   q.set('page', String(page))
   q.set('size', String(size))
+  if (deleted === true) q.set('deleted', 'true')
+  else if (deleted === false) q.set('deleted', 'false')
   return apiGet(`/admin/employees?${q.toString()}`)
 }
 
@@ -168,8 +174,12 @@ export function adminUpdateEmployee(phone, body) {
   return apiPut(`/admin/employees/${encodeURIComponent(phone)}`, body)
 }
 
-export function adminDeleteEmployee(phone) {
-  return apiDelete(`/admin/employees/${encodeURIComponent(phone)}`)
+export function adminDeleteEmployee(phone, body = {}) {
+  return apiDelete(`/admin/employees/${encodeURIComponent(phone)}`, { json: body })
+}
+
+export function adminRestoreEmployee(phone) {
+  return apiPost(`/admin/employees/${encodeURIComponent(phone)}/restore`, {})
 }
 
 export function adminSetEmployeeAvailability(phone, availability) {

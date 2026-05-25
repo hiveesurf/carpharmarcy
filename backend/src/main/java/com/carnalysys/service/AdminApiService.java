@@ -1071,6 +1071,30 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
+  public Map<String, Object> getOrderAdmin(String orderId) {
+    requireAdminAccess();
+    String id = orderId == null ? "" : orderId.trim();
+    if (id.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "orderId required");
+    }
+    OrderEntity order =
+        orderRepository
+            .findById(id)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    List<com.carnalysys.domain.OrderLine> lines = orderLineRepository.findByOrder_Id(order.getId());
+    AdminUser admin = resolveCurrentAdminUser();
+    if ("delivery".equalsIgnoreCase(admin.getRole())) {
+      String assigned = order.getAssignedDeliveryAdminEmail();
+      if (assigned == null
+          || !assigned.trim().equalsIgnoreCase(admin.getEmail().trim())) {
+        throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Order is not assigned to you");
+      }
+      return Map.of("order", orderService.toDeliveryPartnerOrderMap(order, lines));
+    }
+    return Map.of("order", orderService.toAdminOrderMap(order, lines));
+  }
+
+  @Transactional(readOnly = true)
   public Map<String, Object> listOrdersAdminPage(String phone, int page, int size) {
     int safePage = Math.max(0, page);
     int safeSize = Math.max(1, Math.min(50, size));
@@ -1116,6 +1140,9 @@ public class AdminApiService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Delivery admin not found"));
     if (!"delivery".equalsIgnoreCase(delivery.getRole())) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Assignee must be delivery role");
+    }
+    if (delivery.getDeletedAt() != null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery employee is deleted");
     }
     OrderEntity order =
         orderRepository
@@ -1241,23 +1268,29 @@ public class AdminApiService {
   private static final List<String> WORKFORCE_ROLES = List.of("sales", "delivery");
 
   @Transactional(readOnly = true)
-  public List<Map<String, Object>> listEmployees() {
+  public List<Map<String, Object>> listEmployees(Boolean deleted) {
     requireSuperAdmin();
-    return adminUserRepository.findByRoleIn(WORKFORCE_ROLES, Sort.by("phoneE164").ascending()).stream()
-        .map(this::toEmployeeMap)
-        .toList();
+    Sort sort = Sort.by("phoneE164").ascending();
+    List<AdminUser> rows =
+        Boolean.TRUE.equals(deleted)
+            ? adminUserRepository.findByRoleInAndDeletedAtIsNotNull(WORKFORCE_ROLES, sort)
+            : adminUserRepository.findByRoleInAndDeletedAtIsNull(WORKFORCE_ROLES, sort);
+    return rows.stream().map(this::toEmployeeMap).toList();
   }
 
   @Transactional(readOnly = true)
   public Map<String, Object> getEmployeesSummary() {
     requireSuperAdmin();
-    long total = adminUserRepository.countByRoleIn(WORKFORCE_ROLES);
-    long active = adminUserRepository.countByRoleInAndOnboardingStatus(WORKFORCE_ROLES, "success");
-    long inactive = adminUserRepository.countByRoleInAndOnboardingStatus(WORKFORCE_ROLES, "pending");
+    long total = adminUserRepository.countByRoleInAndDeletedAtIsNull(WORKFORCE_ROLES);
+    long active =
+        adminUserRepository.countByRoleInAndDeletedAtIsNullAndOnboardingStatus(WORKFORCE_ROLES, "success");
+    long inactive =
+        adminUserRepository.countByRoleInAndDeletedAtIsNullAndOnboardingStatus(WORKFORCE_ROLES, "pending");
     Instant monthStart =
         YearMonth.now(ZoneOffset.UTC).atDay(1).atStartOfDay().toInstant(ZoneOffset.UTC);
     long joinedThisMonth =
-        adminUserRepository.countByRoleInAndCreatedAtGreaterThanEqual(WORKFORCE_ROLES, monthStart);
+        adminUserRepository.countByRoleInAndDeletedAtIsNullAndCreatedAtGreaterThanEqual(
+            WORKFORCE_ROLES, monthStart);
     Map<String, Object> summary = new LinkedHashMap<>();
     summary.put("total", total);
     summary.put("active", active);
@@ -1267,12 +1300,15 @@ public class AdminApiService {
   }
 
   @Transactional(readOnly = true)
-  public Map<String, Object> listEmployeesPage(int page, int size) {
+  public Map<String, Object> listEmployeesPage(int page, int size, Boolean deleted) {
     requireSuperAdmin();
     Pageable pageable =
         PageRequest.of(
             Math.max(0, page), Math.max(1, Math.min(50, size)), Sort.by("createdAt").descending());
-    Page<AdminUser> result = adminUserRepository.findByRoleIn(WORKFORCE_ROLES, pageable);
+    Page<AdminUser> result =
+        Boolean.TRUE.equals(deleted)
+            ? adminUserRepository.findByRoleInAndDeletedAtIsNotNull(WORKFORCE_ROLES, pageable)
+            : adminUserRepository.findByRoleInAndDeletedAtIsNull(WORKFORCE_ROLES, pageable);
     List<Map<String, Object>> items = result.getContent().stream().map(this::toEmployeeMap).toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
   }
@@ -1289,7 +1325,14 @@ public class AdminApiService {
     String phone = parseEmployeePhone(body.get("phone"));
     UserRole role = parseWorkforceRole(body.get("role"));
     String name = parseEmployeeName(body.get("name"));
-    if (adminUserRepository.findByPhoneE164(phone).isPresent()) {
+    Optional<AdminUser> existingPhone = adminUserRepository.findByPhoneE164(phone);
+    if (existingPhone.isPresent()) {
+      if (existingPhone.get().getDeletedAt() != null) {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "Employee was deleted. Restore them from the deleted employees list.");
+      }
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
     }
     AdminUser a = new AdminUser();
@@ -1311,9 +1354,17 @@ public class AdminApiService {
     String newPhone = parseEmployeePhone(body.get("phone"));
     UserRole role = parseWorkforceRole(body.get("role"));
     String name = parseEmployeeName(body.get("name"));
-    if (!newPhone.equals(employee.getPhoneE164())
-        && adminUserRepository.findByPhoneE164(newPhone).isPresent()) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
+    if (!newPhone.equals(employee.getPhoneE164())) {
+      Optional<AdminUser> phoneTaken = adminUserRepository.findByPhoneE164(newPhone);
+      if (phoneTaken.isPresent() && !phoneTaken.get().getId().equals(employee.getId())) {
+        if (phoneTaken.get().getDeletedAt() != null) {
+          throw new ApiException(
+              HttpStatus.BAD_REQUEST,
+              "VALIDATION_ERROR",
+              "Phone belongs to a deleted employee. Restore them first.");
+        }
+        throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee already exists");
+      }
     }
     String previousRole = employee.getRole();
     String oldEmail = employee.getEmail();
@@ -1336,8 +1387,12 @@ public class AdminApiService {
   }
 
   @Transactional
-  public Map<String, Object> deleteEmployee(String phone) {
+  public Map<String, Object> deleteEmployee(String phone, String reason) {
     requireSuperAdmin();
+    String trimmedReason = reason == null ? "" : reason.trim();
+    if (trimmedReason.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Deletion reason is required");
+    }
     AdminUser employee = requireWorkforceEmployee(phone);
     AdminUser current = resolveCurrentAdminUser();
     if (employee.getId().equals(current.getId())
@@ -1347,8 +1402,44 @@ public class AdminApiService {
           HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Cannot delete your own admin account");
     }
     clearDeliveryAssignments(employee.getEmail());
-    adminUserRepository.delete(employee);
-    return Map.of("removed", employee.getPhoneE164());
+    Instant deletedAt = Instant.now();
+    employee.setDeletedAt(deletedAt);
+    employee.setDeletedReason(trimmedReason);
+    employee.setDeletedBy(formatWorkforceActorLabel(current));
+    employee.setAvailabilityStatus("offline");
+    adminUserRepository.save(employee);
+    return Map.of(
+        "removed",
+        employee.getPhoneE164(),
+        "deletedAt",
+        deletedAt.toString(),
+        "deletedReason",
+        trimmedReason,
+        "deletedBy",
+        employee.getDeletedBy());
+  }
+
+  @Transactional
+  public Map<String, Object> restoreEmployee(String phone) {
+    requireSuperAdmin();
+    String normalized = normalizePhoneKey(phone);
+    AdminUser employee =
+        adminUserRepository
+            .findByPhoneE164(normalized)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found"));
+    if (!isWorkforceRole(employee.getRole())) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
+    }
+    if (employee.getDeletedAt() == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Employee is already active");
+    }
+    employee.setDeletedAt(null);
+    employee.setDeletedReason(null);
+    employee.setDeletedBy(null);
+    UserRole role = UserRole.from(employee.getRole());
+    employee.setAvailabilityStatus(role == UserRole.delivery ? "online" : "busy");
+    adminUserRepository.save(employee);
+    return Map.of("employee", toEmployeeMap(employee));
   }
 
   @Transactional
@@ -1362,10 +1453,8 @@ public class AdminApiService {
     if (!(value.equals("online") || value.equals("busy") || value.equals("offline"))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "availability must be online/busy/offline");
     }
-    AdminUser a =
-        adminUserRepository
-            .findByPhoneE164(normalizedPhone)
-            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found"));
+    AdminUser a = loadWorkforceEmployeeByPhone(normalizedPhone);
+    ensureActiveWorkforce(a);
     a.setAvailabilityStatus(value);
     adminUserRepository.save(a);
     notificationService.notifyAdminEmail(
@@ -1749,7 +1838,24 @@ public class AdminApiService {
     m.put("lastLogoutAt", a.getLastLogoutAt() != null ? a.getLastLogoutAt().toString() : null);
     m.put("firstLoginAt", a.getFirstLoginAt() != null ? a.getFirstLoginAt().toString() : null);
     m.put("createdAt", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
+    m.put("deleted", a.getDeletedAt() != null);
+    m.put("deletedAt", a.getDeletedAt() != null ? a.getDeletedAt().toString() : null);
+    m.put("deletedReason", a.getDeletedReason());
+    m.put("deletedBy", a.getDeletedBy());
     return m;
+  }
+
+  private static String formatWorkforceActorLabel(AdminUser admin) {
+    if (admin == null) {
+      return null;
+    }
+    if (admin.getFullName() != null && !admin.getFullName().isBlank()) {
+      return admin.getFullName().trim();
+    }
+    if (admin.getEmail() != null && !admin.getEmail().isBlank()) {
+      return admin.getEmail().trim();
+    }
+    return admin.getPhoneE164();
   }
 
   private Map<String, Object> toUserMap(UserEntity u) {
@@ -1851,6 +1957,12 @@ public class AdminApiService {
     m.put("date", o.getPlacedAt() != null ? o.getPlacedAt().toString() : null);
     m.put("amount", orderTotalInr(lines, o.getTotalInr()));
     m.put("status", o.getStatus() != null ? o.getStatus().name() : null);
+    m.put("paymentMethod", o.getPaymentMethod() != null ? o.getPaymentMethod().name() : null);
+    int itemCount = 0;
+    for (com.carnalysys.domain.OrderLine line : lines) {
+      itemCount += line.getQuantity();
+    }
+    m.put("itemCount", itemCount);
     return m;
   }
 
@@ -1991,6 +2103,7 @@ public class AdminApiService {
       if (!isWorkforceRole(u.getRole())) {
         throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
       }
+      ensureActiveWorkforce(u);
       return u;
     } catch (IllegalArgumentException ex) {
       return requireWorkforceEmployee(key);
@@ -1998,6 +2111,12 @@ public class AdminApiService {
   }
 
   private AdminUser requireWorkforceEmployee(String phone) {
+    AdminUser employee = loadWorkforceEmployeeByPhone(phone);
+    ensureActiveWorkforce(employee);
+    return employee;
+  }
+
+  private AdminUser loadWorkforceEmployeeByPhone(String phone) {
     String normalized = normalizePhoneKey(phone);
     AdminUser employee =
         adminUserRepository
@@ -2007,6 +2126,12 @@ public class AdminApiService {
       throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
     }
     return employee;
+  }
+
+  private static void ensureActiveWorkforce(AdminUser employee) {
+    if (employee.getDeletedAt() != null) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Employee not found");
+    }
   }
 
   private static String workforceEmail(String phone) {

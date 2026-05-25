@@ -162,6 +162,11 @@ public class AdminV1Controller {
     return ApiResponses.ok(req, adminApiService.listOrdersAdminPage(phone, page, size));
   }
 
+  @GetMapping("/orders/{id}")
+  public ApiEnvelope<Map<String, Object>> order(HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.getOrderAdmin(id));
+  }
+
   @PatchMapping("/orders/{id}/status")
   public ApiEnvelope<Map<String, Object>> orderStatus(
       HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
@@ -222,8 +227,9 @@ public class AdminV1Controller {
   public ApiEnvelope<Map<String, Object>> employees(
       HttpServletRequest req,
       @RequestParam(name = "page", defaultValue = "0") Integer page,
-      @RequestParam(name = "size", defaultValue = "5") Integer size) {
-    return ApiResponses.ok(req, adminApiService.listEmployeesPage(page, size));
+      @RequestParam(name = "size", defaultValue = "5") Integer size,
+      @RequestParam(name = "deleted", required = false) Boolean deleted) {
+    return ApiResponses.ok(req, adminApiService.listEmployeesPage(page, size, deleted));
   }
 
   @GetMapping("/employees/summary")
@@ -271,8 +277,15 @@ public class AdminV1Controller {
 
   @DeleteMapping("/employees/{phone}")
   public ApiEnvelope<Map<String, Object>> deleteEmployee(
+      HttpServletRequest req, @PathVariable String phone, @RequestBody(required = false) Map<String, Object> body) {
+    String reason = body == null ? "" : String.valueOf(body.getOrDefault("reason", ""));
+    return ApiResponses.ok(req, adminApiService.deleteEmployee(phone, reason));
+  }
+
+  @PostMapping("/employees/{phone}/restore")
+  public ApiEnvelope<Map<String, Object>> restoreEmployee(
       HttpServletRequest req, @PathVariable String phone) {
-    return ApiResponses.ok(req, adminApiService.deleteEmployee(phone));
+    return ApiResponses.ok(req, adminApiService.restoreEmployee(phone));
   }
 
   @PatchMapping("/employees/{phone}/availability")

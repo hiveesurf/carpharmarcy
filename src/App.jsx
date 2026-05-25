@@ -6,6 +6,7 @@ import { AdminOverviewPage } from './admin/pages/AdminOverviewPage.jsx'
 import { AdminProductsPage } from './admin/pages/AdminProductsPage.jsx'
 import { AdminCarsPage } from './admin/pages/AdminCarsPage.jsx'
 import { AdminOrdersPage } from './admin/pages/AdminOrdersPage.jsx'
+import { AdminOrderDetailsPage } from './admin/pages/AdminOrderDetailsPage.jsx'
 import { AdminCategoriesPage } from './admin/pages/AdminCategoriesPage.jsx'
 import { AdminUsersPage } from './admin/pages/AdminUsersPage.jsx'
 import { AdminEmployeesPage } from './admin/pages/AdminEmployeesPage.jsx'
@@ -121,6 +122,7 @@ export default function App() {
         <Route path="cars" element={<AdminCarsPage />} />
         <Route path="cars/add" element={<AdminAddCarPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
+        <Route path="orders/:orderId" element={<AdminOrderDetailsPage />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="users/:id" element={<AdminUserProfilePage />} />

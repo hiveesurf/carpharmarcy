@@ -65,7 +65,7 @@ public class AdminAuthorizationFilter extends OncePerRequestFilter {
       }
 
       var adminOpt = adminUserRepository.findByPhoneE164(user.getPhoneE164().trim());
-      if (adminOpt.isEmpty()) {
+      if (adminOpt.isEmpty() || adminOpt.get().getDeletedAt() != null) {
         forbidden(response);
         return;
       }

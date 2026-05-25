@@ -1,17 +1,24 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X } from 'lucide-react'
+import { Clock, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import { Button } from '../ui/Button'
 import { getAccessToken } from '../../lib/authTokens.js'
 import { resolveSessionRole } from '../../lib/jwtPayload.js'
+
+const OTP_MIN_LENGTH = 4
 
 function normalizeMobileInput(value) {
   const digits = String(value ?? '').replace(/\D/g, '')
   if (!digits) return ''
   if (digits.length <= 10) return digits
   return digits.slice(-10)
+}
+
+function resolveOtpTtlSeconds(data) {
+  const ttl = data?.ttlSeconds
+  return typeof ttl === 'number' && ttl > 0 ? ttl : 20
 }
 
 export function AuthModals() {
@@ -21,42 +28,115 @@ export function AuthModals() {
   const [otp, setOtp] = useState('')
   const [step, setStep] = useState('phone')
   const [message, setMessage] = useState('')
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [otpExpiresIn, setOtpExpiresIn] = useState(0)
+  const [otpExpired, setOtpExpired] = useState(false)
 
-  const reset = () => {
-    setPhone('')
+  const clearOtpFlow = useCallback(() => {
     setOtp('')
+    setOtpExpiresIn(0)
+    setOtpExpired(false)
+  }, [])
+
+  const reset = useCallback(() => {
+    setPhone('')
+    clearOtpFlow()
     setStep('phone')
     setMessage('')
-  }
+    setSendingOtp(false)
+    setVerifying(false)
+  }, [clearOtpFlow])
+
+  const beginOtpCountdown = useCallback((sendData) => {
+    setOtpExpired(false)
+    setOtpExpiresIn(resolveOtpTtlSeconds(sendData))
+  }, [])
 
   const handleClose = () => {
     reset()
     closeAuth()
   }
 
+  useEffect(() => {
+    if (step !== 'otp' || otpExpired) return undefined
+    const id = window.setInterval(() => {
+      setOtpExpiresIn((prev) => {
+        if (prev <= 1) {
+          setOtpExpired(true)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [step, otpExpired])
+
   const onSendOtp = async (e) => {
-    e.preventDefault()
+    e?.preventDefault?.()
+    if (sendingOtp || phone.length !== 10) return
     setMessage('')
-    const r = await sendOtp(phone)
-    if (!r.ok) setMessage(r.message)
-    else {
+    setSendingOtp(true)
+    try {
+      const r = await sendOtp(phone)
+      if (!r.ok) {
+        setMessage(r.message)
+        return
+      }
+      clearOtpFlow()
       setStep('otp')
+      beginOtpCountdown(r.data)
+    } finally {
+      setSendingOtp(false)
+    }
+  }
+
+  const onResendOtp = async () => {
+    if (!otpExpired || sendingOtp) return
+    setMessage('')
+    setSendingOtp(true)
+    try {
+      const r = await sendOtp(phone)
+      if (!r.ok) {
+        setMessage(r.message)
+        return
+      }
+      setOtp('')
+      beginOtpCountdown(r.data)
+    } finally {
+      setSendingOtp(false)
     }
   }
 
   const onVerify = async (e) => {
     e.preventDefault()
+    if (verifying || otpExpired) return
+    if (otp.length < OTP_MIN_LENGTH) return
     setMessage('')
-    const r = await verifyOtp(phone, otp)
-    if (!r.ok) setMessage(r.message)
-    else {
-      reset()
-      const role = resolveSessionRole(r.user, getAccessToken())
-      if (['super_admin', 'sales', 'delivery', 'admin'].includes(role)) {
-        navigate('/admin', { replace: true })
+    setVerifying(true)
+    try {
+      const r = await verifyOtp(phone, otp)
+      if (!r.ok) setMessage(r.message)
+      else {
+        reset()
+        const role = resolveSessionRole(r.user, getAccessToken())
+        if (['super_admin', 'sales', 'delivery', 'admin'].includes(role)) {
+          navigate('/admin', { replace: true })
+        }
       }
+    } finally {
+      setVerifying(false)
     }
   }
+
+  const onChangeNumber = () => {
+    clearOtpFlow()
+    setStep('phone')
+    setMessage('')
+  }
+
+  const otpValid = otp.length >= OTP_MIN_LENGTH
+  const canVerify = otpValid && !otpExpired && !verifying
 
   return (
     <AnimatePresence>
@@ -119,8 +199,14 @@ export function AuthModals() {
                     placeholder="9876543210"
                   />
                 </div>
-                <Button variant="primary" size="md" className="w-full" type="submit">
-                  Send OTP
+                <Button
+                  variant="primary"
+                  size="md"
+                  className="w-full disabled:cursor-not-allowed disabled:opacity-50"
+                  type="submit"
+                  disabled={sendingOtp || phone.length !== 10}
+                >
+                  {sendingOtp ? 'Sending…' : 'Send OTP'}
                 </Button>
               </form>
             ) : (
@@ -139,21 +225,52 @@ export function AuthModals() {
                     maxLength={6}
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="w-full border border-fog/15 bg-ink/50 px-3 py-2.5 font-sans text-fog outline-none focus:border-accent/50 tracking-[0.3em]"
+                    disabled={otpExpired}
+                    className="w-full border border-fog/15 bg-ink/50 px-3 py-2.5 font-sans text-fog outline-none focus:border-accent/50 tracking-[0.3em] disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder="Enter code"
+                    aria-invalid={otpExpired}
                   />
+                  {!otpExpired && otpExpiresIn > 0 ? (
+                    <p
+                      className="mt-1 flex items-center justify-center gap-1 font-mono text-[10px] text-mist/65"
+                      aria-live="polite"
+                    >
+                      <Clock className="h-3 w-3 shrink-0 text-mist/50" strokeWidth={1.75} aria-hidden />
+                      <span>
+                        OTP expires in{' '}
+                        <span className="font-semibold text-accent">{otpExpiresIn}s</span>
+                      </span>
+                    </p>
+                  ) : null}
+                  {otpExpired ? (
+                    <p className="mt-2 text-sm text-flare" role="alert">
+                      OTP expired. Please request a new OTP.
+                    </p>
+                  ) : null}
                 </div>
-                <Button variant="primary" size="md" className="w-full" type="submit">
-                  Verify & continue
+                <Button
+                  variant="primary"
+                  size="md"
+                  className="w-full disabled:cursor-not-allowed disabled:bg-accent/80 disabled:text-[var(--color-on-accent)] disabled:opacity-95 disabled:shadow-[0_6px_20px_-6px_rgba(255,107,53,0.35)] disabled:hover:brightness-100"
+                  type="submit"
+                  disabled={!canVerify}
+                >
+                  {verifying ? 'Verifying…' : 'Verify & continue'}
                 </Button>
+                {otpExpired ? (
+                  <button
+                    type="button"
+                    className="w-full font-sans text-sm text-accent underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-mist disabled:no-underline"
+                    disabled={sendingOtp}
+                    onClick={() => void onResendOtp()}
+                  >
+                    {sendingOtp ? 'Sending…' : 'Resend OTP'}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="w-full font-sans text-sm text-accent underline-offset-2 hover:underline"
-                  onClick={() => {
-                    setStep('phone')
-                    setOtp('')
-                    setMessage('')
-                  }}
+                  onClick={onChangeNumber}
                 >
                   Change number
                 </button>

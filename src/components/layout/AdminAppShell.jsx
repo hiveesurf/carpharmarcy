@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell } from 'lucide-react'
+import { Bell, X } from 'lucide-react'
 import { AuthModals } from '../auth/AuthModals'
 import { useAuth } from '../../context/useAuth'
 import { useNotifications } from '../../context/useNotifications.js'
@@ -20,6 +21,26 @@ export function AdminAppShell({ children }) {
     sessionRole === 'delivery' ? 'carpharmacy delivery' : 'carpharmacy admin'
   const { unreadCount, panelOpen, setPanelOpen, items, markAllRead, markReadByIds, enablePushNotifications } =
     useNotifications()
+  const notificationRef = useRef(null)
+
+  const closeNotificationsPanel = () => setPanelOpen(false)
+
+  useEffect(() => {
+    if (!panelOpen) return undefined
+    function onPointerDown(ev) {
+      if (notificationRef.current?.contains(ev.target)) return
+      setPanelOpen(false)
+    }
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') setPanelOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [panelOpen, setPanelOpen])
 
   return (
     <div className="relative min-h-svh bg-ink text-fog antialiased">
@@ -31,12 +52,13 @@ export function AdminAppShell({ children }) {
           {headerBrand}
         </Link>
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="relative">
+          <div className="relative" ref={notificationRef}>
             <button
               type="button"
               onClick={() => setPanelOpen((v) => !v)}
               className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-steel/80 text-mist transition-colors hover:border-accent/40 hover:text-accent"
               aria-label="Admin notifications"
+              aria-expanded={panelOpen}
             >
               <Bell size={16} />
               {unreadCount > 0 ? (
@@ -47,15 +69,25 @@ export function AdminAppShell({ children }) {
             </button>
             {panelOpen ? (
               <div className="absolute right-0 top-[calc(100%+0.4rem)] z-[110] w-80 rounded-xl border border-steel/80 bg-ink p-3 shadow-xl">
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="font-sans text-xs font-semibold uppercase tracking-wide text-fog">Admin alerts</p>
-                  <button
-                    type="button"
-                    onClick={() => void markAllRead()}
-                    className="font-sans text-[11px] font-semibold text-accent hover:underline"
-                  >
-                    Mark all read
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void markAllRead()}
+                      className="font-sans text-[11px] font-semibold text-accent hover:underline"
+                    >
+                      Mark all read
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeNotificationsPanel}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-steel/70 text-mist transition-colors hover:border-accent/40 hover:text-accent"
+                      aria-label="Close notifications"
+                    >
+                      <X size={14} strokeWidth={2} />
+                    </button>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -98,7 +130,7 @@ export function AdminAppShell({ children }) {
                               type="button"
                               onClick={() => {
                                 void markReadByIds([n.id])
-                                setPanelOpen(false)
+                                closeNotificationsPanel()
                                 navigate(targetPath)
                               }}
                               className="mt-2 font-sans text-[11px] font-semibold text-accent hover:underline"

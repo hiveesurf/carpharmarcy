@@ -1,4 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { OrderViewDetailsLink } from '../components/AdminOrderDetailsPanels.jsx'
 import {
   Package,
   RefreshCw,
@@ -370,104 +372,25 @@ function OrdersEmptyState({ title, description }) {
   )
 }
 
-const DETAILS_BTN_CLASS =
+const ACTION_BTN_CLASS =
   'whitespace-nowrap rounded border border-[#d5d9d9] bg-white px-2 py-1 text-[11px] font-normal text-[#0f1111] shadow-[0_1px_2px_rgba(15,17,17,0.08)] hover:bg-[#f7fafa] dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30'
 
-function OrderActionsCell({ order, isDelivery, busyId, linesExpanded, onToggleLines, onMarkDelivered }) {
+function OrderActionsCell({ order, isDelivery, busyId, onMarkDelivered }) {
   const canMarkDelivered = isDelivery && normalizeOrderStatus(order.status) === 'shipped'
 
   return (
     <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-      <button
-        type="button"
-        onClick={onToggleLines}
-        className={DETAILS_BTN_CLASS}
-        aria-expanded={linesExpanded}
-      >
-        {linesExpanded ? 'Hide details' : 'View details'}
-      </button>
+      <OrderViewDetailsLink orderId={order.id} />
       {canMarkDelivered ? (
         <button
           type="button"
           disabled={busyId === order.id}
           onClick={() => onMarkDelivered(order)}
-          className={`${DETAILS_BTN_CLASS} font-medium text-[#007185] disabled:opacity-50`}
+          className={`${ACTION_BTN_CLASS} font-medium text-[#007185] disabled:opacity-50`}
         >
           {busyId === order.id ? 'Updating…' : 'Mark delivered'}
         </button>
       ) : null}
-    </div>
-  )
-}
-
-function OrderLinesPanel({ order, isDelivery }) {
-  const lines = Array.isArray(order?.lines) ? order.lines : []
-
-  return (
-    <div className="border-b-2 border-[#d5d9d9] bg-[#eaeded] px-3 py-3 dark:border-steel/50 dark:bg-ink/25 sm:px-4">
-      <div
-        className="overflow-hidden rounded-md border border-[#d5d9d9] bg-white shadow-[0_1px_3px_rgba(15,17,17,0.12)] dark:border-steel/60 dark:bg-slate"
-        role="region"
-        aria-label={`Order items for ${order.id}`}
-      >
-        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-2.5 dark:border-steel/50 dark:bg-ink/10">
-          <div>
-            <h3 className="text-xs font-semibold text-[#0f1111] dark:text-fog">Order items</h3>
-            <p className="mt-0.5 font-mono text-[10px] text-[#565959] dark:text-mist">Order {order.id}</p>
-          </div>
-          <p className="text-[10px] text-[#565959] dark:text-mist">
-            {lines.length} line{lines.length === 1 ? '' : 's'} · {lineItemCount(order)} units
-          </p>
-        </div>
-        {lines.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-[#565959] dark:text-mist">No line items for this order.</p>
-        ) : (
-          <div className="overflow-x-auto px-2 py-2 sm:px-3">
-            <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-[#e7e7e7] text-[11px] font-semibold text-[#565959] dark:border-steel/50 dark:text-mist">
-                  <th className="px-3 py-2 font-semibold">Product</th>
-                  <th className="px-3 py-2 font-semibold">SKU</th>
-                  <th className="px-3 py-2 text-right font-semibold">Qty</th>
-                  {!isDelivery ? (
-                    <>
-                      <th className="px-3 py-2 text-right font-semibold">Unit price</th>
-                      <th className="px-3 py-2 text-right font-semibold">Line total</th>
-                    </>
-                  ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
-                {lines.map((line, i) => (
-                  <tr key={`${order.id}-line-${line.sku || line.productId || i}`} className="bg-white dark:bg-slate">
-                    <td className="px-3 py-2 font-medium text-[#0f1111] dark:text-fog">
-                      {line.productName || line.productId || '—'}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[11px] text-[#565959] dark:text-mist">
-                      {line.sku || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{line.quantity ?? '—'}</td>
-                    {!isDelivery ? (
-                      <>
-                        <td className="px-3 py-2 text-right tabular-nums">{formatInr(line.unitPrice)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-medium">
-                          {formatInr(line.lineTotal)}
-                        </td>
-                      </>
-                    ) : null}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {isDelivery && normalizeOrderStatus(order.status) !== 'shipped' &&
-        ['placed', 'confirmed', 'processing'].includes(normalizeOrderStatus(order.status)) ? (
-          <p className="border-t border-[#e7e7e7] px-4 py-2 text-xs text-[#565959] dark:border-steel/50 dark:text-mist">
-            Order must be shipped before delivery completion.
-          </p>
-        ) : null}
-      </div>
     </div>
   )
 }
@@ -495,7 +418,6 @@ export function AdminOrdersPage() {
   const [dateRangeTo, setDateRangeTo] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [nextPage, setNextPage] = useState(1)
-  const [expandedOrderId, setExpandedOrderId] = useState(null)
   const [deliveryMonth, setDeliveryMonth] = useState('')
   const [deliveryFrom, setDeliveryFrom] = useState('')
   const [deliveryTo, setDeliveryTo] = useState('')
@@ -1091,13 +1013,17 @@ export function AdminOrdersPage() {
                 </thead>
                 <tbody className="divide-y divide-[#e7e7e7] dark:divide-steel/40">
                   {filteredItems.map((o) => {
-                    const linesExpanded = expandedOrderId === o.id
+                    const orderDetailPath = `/admin/orders/${encodeURIComponent(o.id)}`
                     return (
-                      <Fragment key={o.id}>
-                        <tr
-                          className={`${TABLE_ROW}${linesExpanded ? ' bg-[#f7fafa] dark:bg-steel/20' : ''}`}
-                        >
-                          <td className={`${TABLE_CELL} font-mono text-xs`}>{o.id}</td>
+                        <tr key={o.id} className={TABLE_ROW}>
+                          <td className={`${TABLE_CELL} font-mono text-xs`}>
+                            <Link
+                              to={orderDetailPath}
+                              className="text-[#007185] hover:underline dark:text-accent"
+                            >
+                              {o.id}
+                            </Link>
+                          </td>
                           <td className={TABLE_CELL}>
                             <p className="truncate font-medium text-[#0f1111] dark:text-fog">
                               {o.customerName?.trim() ? o.customerName : 'Customer'}
@@ -1139,22 +1065,10 @@ export function AdminOrdersPage() {
                               order={o}
                               isDelivery={isDelivery}
                               busyId={busyId}
-                              linesExpanded={linesExpanded}
-                              onToggleLines={() =>
-                                setExpandedOrderId((id) => (id === o.id ? null : o.id))
-                              }
                               onMarkDelivered={markDelivered}
                             />
                           </td>
                         </tr>
-                        {linesExpanded ? (
-                          <tr className="bg-[#eaeded] dark:bg-ink/25">
-                            <td colSpan={isDelivery ? 7 : 8} className="p-0 align-top">
-                              <OrderLinesPanel order={o} isDelivery={isDelivery} />
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
                     )
                   })}
                 </tbody>

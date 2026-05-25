@@ -53,6 +53,15 @@ public class AdminUser {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt = Instant.now();
 
+  @Column(name = "deleted_at")
+  private Instant deletedAt;
+
+  @Column(name = "deleted_reason")
+  private String deletedReason;
+
+  @Column(name = "deleted_by")
+  private String deletedBy;
+
   public UUID getId() {
     return id;
   }
@@ -159,5 +168,29 @@ public class AdminUser {
 
   public void setUpdatedAt(Instant updatedAt) {
     this.updatedAt = updatedAt;
+  }
+
+  public Instant getDeletedAt() {
+    return deletedAt;
+  }
+
+  public void setDeletedAt(Instant deletedAt) {
+    this.deletedAt = deletedAt;
+  }
+
+  public String getDeletedReason() {
+    return deletedReason;
+  }
+
+  public void setDeletedReason(String deletedReason) {
+    this.deletedReason = deletedReason;
+  }
+
+  public String getDeletedBy() {
+    return deletedBy;
+  }
+
+  public void setDeletedBy(String deletedBy) {
+    this.deletedBy = deletedBy;
   }
 }

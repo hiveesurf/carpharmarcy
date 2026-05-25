@@ -343,7 +343,12 @@ public class OrderService {
       ls.add(row);
     }
     m.put("lines", ls);
-    m.put("total", total);
+    m.put("subtotal", total);
+    long grandTotal = total;
+    if (o.getTotalInr() != null) {
+      grandTotal = o.getTotalInr().setScale(0, RoundingMode.DOWN).longValue();
+    }
+    m.put("total", grandTotal);
     m.put("createdAt", o.getPlacedAt().toString());
     m.put("assignedDeliveryAdminEmail", o.getAssignedDeliveryAdminEmail());
     m.put("assignedDeliveryAt", o.getAssignedDeliveryAt() != null ? o.getAssignedDeliveryAt().toString() : null);
@@ -352,9 +357,32 @@ public class OrderService {
             ? addressIdOverride
             : (o.getShippingAddress() != null ? o.getShippingAddress().getId().toString() : null);
     m.put("addressId", aid);
+    AddressEntity shipping = o.getShippingAddress();
+    if (shipping != null) {
+      m.put("shippingAddress", toAddressMap(shipping));
+    }
     if (includeHistory) {
       m.put("statusHistory", toStatusHistory(o.getId()));
     }
+    m.put(
+        "deliveredAt",
+        o.getStatus() == OrderStatus.delivered && o.getUpdatedAt() != null
+            ? o.getUpdatedAt().toString()
+            : null);
+    return m;
+  }
+
+  private static Map<String, Object> toAddressMap(AddressEntity a) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", a.getId().toString());
+    m.put("line1", a.getLine1());
+    m.put("line2", a.getLine2());
+    m.put("city", a.getCity());
+    m.put("state", a.getState());
+    m.put("pincode", a.getPincode());
+    m.put("country", a.getCountry());
+    m.put("label", a.getLabel());
+    m.put("isDefault", a.isDefaultAddress());
     return m;
   }
 
@@ -478,7 +506,7 @@ public class OrderService {
         userProfileRepository
             .findById(Objects.requireNonNull(order.getUser().getId(), "order user id"))
             .orElse(null);
-    return toOrderMap(order, lines, null, profile, false);
+    return toOrderMap(order, lines, null, profile, true);
   }
 
   /**
@@ -507,6 +535,7 @@ public class OrderService {
     }
     m.put("lines", ls);
     m.put("createdAt", order.getPlacedAt().toString());
+    m.put("assignedDeliveryAdminEmail", order.getAssignedDeliveryAdminEmail());
     m.put(
         "assignedDeliveryAt",
         order.getAssignedDeliveryAt() != null ? order.getAssignedDeliveryAt().toString() : null);
@@ -515,9 +544,14 @@ public class OrderService {
         order.getStatus() == OrderStatus.delivered && order.getUpdatedAt() != null
             ? order.getUpdatedAt().toString()
             : null);
+    m.put("statusHistory", toStatusHistory(order.getId()));
     String aid =
         order.getShippingAddress() != null ? order.getShippingAddress().getId().toString() : null;
     m.put("addressId", aid);
+    AddressEntity shipping = order.getShippingAddress();
+    if (shipping != null) {
+      m.put("shippingAddress", toAddressMap(shipping));
+    }
     return m;
   }
 

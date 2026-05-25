@@ -20,13 +20,13 @@ import {
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import {
-  filterOrdersLast7Days,
   matchesProfileStatusFilter,
   normalizeOrderStatus,
   ORDER_STATUS_FILTER_LABELS,
 } from '../../lib/orderStatus.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { ProfileSummaryCard } from '../components/ProfileSummaryCard.jsx'
+import { OrderViewDetailsLink } from '../components/AdminOrderDetailsPanels.jsx'
 
 const ORDER_SUMMARY_CARDS = [
   { key: 'recent', label: 'Recent Orders', sublabel: 'Last 7 days', countKey: 'recent', icon: ClipboardList },
@@ -62,6 +62,12 @@ function formatDate(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+}
+
+function formatPaymentMode(method) {
+  if (method == null || method === '') return 'Not available'
+  const raw = String(method).trim().toLowerCase().replace(/_/g, ' ')
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : 'Not available'
 }
 
 function orderStatusPill(status) {
@@ -163,13 +169,11 @@ export function AdminUserProfilePage() {
   const orderCounts = data?.orderCounts ?? {}
   const last7DayCounts = orderCounts.last7Days ?? {}
   const addresses = Array.isArray(data?.addresses) ? data.addresses : []
-  const recentOrders = Array.isArray(data?.recentOrders) ? data.recentOrders : []
-
-  const ordersLast7Days = useMemo(() => filterOrdersLast7Days(recentOrders), [recentOrders])
+  const customerOrders = Array.isArray(data?.recentOrders) ? data.recentOrders : []
 
   const filteredOrders = useMemo(() => {
-    return ordersLast7Days.filter((o) => matchesProfileStatusFilter(o?.status, statusFilter))
-  }, [ordersLast7Days, statusFilter])
+    return customerOrders.filter((o) => matchesProfileStatusFilter(o?.status, statusFilter))
+  }, [customerOrders, statusFilter])
 
   const avatar = resolveApiAssetUrl(user.avatarUrl)
   const displayName = user.name?.trim() || 'User'
@@ -346,14 +350,14 @@ export function AdminUserProfilePage() {
               </section>
             </div>
 
-            {/* Recent orders */}
+            {/* Customer orders */}
             <section className={`${panel} overflow-hidden`}>
               <div className="flex flex-col gap-3 border-b border-[#e3e6e6] bg-[#fafafa] px-4 py-3 dark:border-steel/50 dark:bg-ink/15 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <div>
-                  <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">Recent orders</h2>
+                  <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">Customer orders</h2>
                   <p className="mt-0.5 text-xs text-[#565959] dark:text-mist">
-                    Last 7 days · showing {filteredOrders.length} order
-                    {filteredOrders.length === 1 ? '' : 's'}
+                    Summary only · open an order for payment, address, items, delivery, and timeline ·{' '}
+                    {filteredOrders.length} of {customerOrders.length} shown
                     {statusFilter !== 'recent' ? (
                       <>
                         {' '}
@@ -380,22 +384,25 @@ export function AdminUserProfilePage() {
                   <EmptyPanel
                     icon={Package}
                     title={
-                      ordersLast7Days.length === 0 ? 'No orders in the last 7 days' : 'No orders match this filter'
+                      customerOrders.length === 0 ? 'No orders yet' : 'No orders match this filter'
                     }
                     description={
-                      ordersLast7Days.length === 0
-                        ? 'This user has not placed any orders in the last 7 days.'
-                        : `No orders in the last 7 days with status “${ORDER_STATUS_FILTER_LABELS[statusFilter] ?? statusFilter}”. Clear the filter or choose another summary card.`
+                      customerOrders.length === 0
+                        ? 'This user has not placed any orders.'
+                        : `No orders with status “${ORDER_STATUS_FILTER_LABELS[statusFilter] ?? statusFilter}”. Clear the filter or choose another summary card.`
                     }
                   />
                 ) : (
-                  <table className="w-full min-w-[560px] text-left text-sm">
+                  <table className="w-full min-w-[720px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-[#e3e6e6] bg-[#f0f2f2] text-[10px] font-semibold uppercase tracking-[0.06em] text-[#565959] dark:border-steel/50 dark:bg-ink/20 dark:text-mist">
                         <th className="px-4 py-3 font-semibold sm:px-5">Order ID</th>
-                        <th className="px-4 py-3 font-semibold sm:px-5">Date</th>
-                        <th className="px-4 py-3 font-semibold sm:px-5">Amount</th>
                         <th className="px-4 py-3 font-semibold sm:px-5">Status</th>
+                        <th className="px-4 py-3 font-semibold sm:px-5">Amount</th>
+                        <th className="px-4 py-3 font-semibold sm:px-5">Payment</th>
+                        <th className="px-4 py-3 font-semibold sm:px-5">Created</th>
+                        <th className="px-4 py-3 font-semibold text-right sm:px-5">Items</th>
+                        <th className="px-4 py-3 font-semibold text-right sm:px-5">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#e3e6e6] dark:divide-steel/40">
@@ -404,14 +411,13 @@ export function AdminUserProfilePage() {
                           key={o.id}
                           className="bg-white transition-colors hover:bg-accent-muted/40 dark:bg-transparent dark:hover:bg-steel/15"
                         >
-                          <td className="px-4 py-3.5 font-mono text-xs text-accent sm:px-5">
-                            {o.id}
-                          </td>
-                          <td className="px-4 py-3.5 text-[#565959] dark:text-mist sm:px-5">
-                            {formatDate(o.date)}
-                          </td>
-                          <td className="px-4 py-3.5 font-medium tabular-nums text-[#0f1111] dark:text-fog sm:px-5">
-                            {formatInr(o.amount)}
+                          <td className="px-4 py-3.5 font-mono text-xs sm:px-5">
+                            <Link
+                              to={`/admin/orders/${encodeURIComponent(o.id)}`}
+                              className="font-medium text-accent hover:underline"
+                            >
+                              {o.id}
+                            </Link>
                           </td>
                           <td className="px-4 py-3.5 sm:px-5">
                             <span
@@ -419,6 +425,21 @@ export function AdminUserProfilePage() {
                             >
                               {orderStatusLabel(o.status)}
                             </span>
+                          </td>
+                          <td className="px-4 py-3.5 font-medium tabular-nums text-[#0f1111] dark:text-fog sm:px-5">
+                            {formatInr(o.amount)}
+                          </td>
+                          <td className="px-4 py-3.5 text-[#565959] dark:text-mist sm:px-5">
+                            {formatPaymentMode(o.paymentMethod)}
+                          </td>
+                          <td className="px-4 py-3.5 text-[#565959] dark:text-mist sm:px-5">
+                            {formatDate(o.date)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right tabular-nums text-[#0f1111] dark:text-fog sm:px-5">
+                            {o.itemCount ?? 0}
+                          </td>
+                          <td className="px-4 py-3.5 text-right sm:px-5">
+                            <OrderViewDetailsLink orderId={o.id} />
                           </td>
                         </tr>
                       ))}

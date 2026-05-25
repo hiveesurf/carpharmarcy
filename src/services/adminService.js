@@ -144,6 +144,13 @@ export async function listOrders({ page = 0, size = 5, phone } = {}) {
   }
 }
 
+export async function getAdminOrder(id) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminGetOrder(id)
+  const d = data && typeof data === 'object' ? data : {}
+  return d.order && typeof d.order === 'object' ? d.order : null
+}
+
 /** Paginate through admin orders API for aggregate status counts (no new endpoint). */
 export async function listAllOrdersForSummary() {
   let page = 0
@@ -311,13 +318,13 @@ export async function getEmployeesSummary() {
   }
 }
 
-export async function listEmployees() {
+export async function listEmployees({ deleted = false } = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   let page = 0
   let hasMore = true
   const merged = []
   while (hasMore) {
-    const { data } = await adminApi.adminListEmployees({ page, size: 50 })
+    const { data } = await adminApi.adminListEmployees({ page, size: 50, deleted })
     const d = data && typeof data === 'object' ? data : {}
     const items = Array.isArray(d.items) ? d.items : []
     merged.push(...items)
@@ -327,9 +334,9 @@ export async function listEmployees() {
   return merged
 }
 
-export async function listEmployeesPage({ page = 0, size = 5 } = {}) {
+export async function listEmployeesPage({ page = 0, size = 5, deleted = false } = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
-  const { data } = await adminApi.adminListEmployees({ page, size })
+  const { data } = await adminApi.adminListEmployees({ page, size, deleted })
   const d = data && typeof data === 'object' ? data : {}
   return {
     items: Array.isArray(d.items) ? d.items : [],
@@ -358,10 +365,16 @@ export async function updateEmployee(phone, body) {
   return data?.employee ?? null
 }
 
-export async function removeEmployee(phone) {
+export async function removeEmployee(phone, { reason } = {}) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
-  const { data } = await adminApi.adminDeleteEmployee(phone)
-  return data?.removed ?? phone
+  const { data } = await adminApi.adminDeleteEmployee(phone, { reason: String(reason ?? '').trim() })
+  return data && typeof data === 'object' ? data : { removed: phone }
+}
+
+export async function restoreEmployee(phone) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminRestoreEmployee(phone)
+  return data?.employee ?? null
 }
 
 export async function setEmployeeAvailability(phone, availability) {

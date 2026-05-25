@@ -309,7 +309,7 @@ public class AuthService {
 
   private void promoteRoleAndActivateEmployeeIfMatched(UserEntity user, String phoneDigits) {
     AdminUser employee = adminUserRepository.findByPhoneE164(phoneDigits).orElse(null);
-    if (employee == null) {
+    if (employee == null || employee.getDeletedAt() != null) {
       return;
     }
 

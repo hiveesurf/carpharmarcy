@@ -134,7 +134,7 @@ class AdminApiServiceEmployeeTest {
   }
 
   @Test
-  void deleteEmployeeHardDeletesAndClearsAssignments() {
+  void deleteEmployeeSoftDeletesAndClearsAssignments() {
     AdminUser employee = new AdminUser();
     employee.setPhoneE164("9876543210");
     employee.setEmail("emp_9876543210@carnalysys.local");
@@ -147,11 +147,41 @@ class AdminApiServiceEmployeeTest {
     when(orderRepository.findByAssignedDeliveryAdminEmailIgnoreCase("emp_9876543210@carnalysys.local"))
         .thenReturn(List.of(order));
 
-    adminApiService.deleteEmployee("9876543210");
+    adminApiService.deleteEmployee("9876543210", "Left the company");
 
-    verify(adminUserRepository).delete(employee);
+    verify(adminUserRepository, never()).delete(employee);
+    verify(adminUserRepository).save(employee);
+    assertThat(employee.getDeletedAt()).isNotNull();
+    assertThat(employee.getDeletedReason()).isEqualTo("Left the company");
     assertThat(order.getAssignedDeliveryAdminEmail()).isNull();
-    verify(adminUserRepository, never()).save(employee);
+  }
+
+  @Test
+  void deleteEmployeeRequiresReason() {
+    assertThatThrownBy(() -> adminApiService.deleteEmployee("9876543210", "  "))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> assertThat(((ApiException) ex).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+
+    verify(adminUserRepository, never()).save(any());
+  }
+
+  @Test
+  void restoreEmployeeReactivatesRecord() {
+    AdminUser employee = new AdminUser();
+    employee.setPhoneE164("9876543210");
+    employee.setEmail("emp_9876543210@carnalysys.local");
+    employee.setRole("delivery");
+    employee.setDeletedAt(java.time.Instant.now());
+    employee.setDeletedReason("Test");
+    when(adminUserRepository.findByPhoneE164("9876543210")).thenReturn(Optional.of(employee));
+    when(adminUserRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    adminApiService.restoreEmployee("9876543210");
+
+    assertThat(employee.getDeletedAt()).isNull();
+    assertThat(employee.getDeletedReason()).isNull();
+    assertThat(employee.getAvailabilityStatus()).isEqualTo("online");
   }
 
   @Test
@@ -166,12 +196,13 @@ class AdminApiServiceEmployeeTest {
         .thenReturn(Optional.of(employee), Optional.of(superAdmin));
     stubCurrentSuperAdminUserOnly("9876543210");
 
-    assertThatThrownBy(() -> adminApiService.deleteEmployee("9876543210"))
+    assertThatThrownBy(() -> adminApiService.deleteEmployee("9876543210", "reason"))
         .isInstanceOf(ApiException.class)
         .satisfies(
             ex -> assertThat(((ApiException) ex).status()).isEqualTo(HttpStatus.BAD_REQUEST));
 
     verify(adminUserRepository, never()).delete(any());
+    verify(adminUserRepository, never()).save(any());
   }
 
   @Test
@@ -200,13 +231,14 @@ class AdminApiServiceEmployeeTest {
     sales.setRole("sales");
     sales.setPhoneE164("9111111111");
     Page<AdminUser> page = new PageImpl<>(List.of(sales));
-    when(adminUserRepository.findByRoleIn(eq(List.of("sales", "delivery")), any(Pageable.class)))
+    when(adminUserRepository.findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery")), any(Pageable.class)))
         .thenReturn(page);
 
-    Map<String, Object> result = adminApiService.listEmployeesPage(0, 5);
+    Map<String, Object> result = adminApiService.listEmployeesPage(0, 5, false);
 
     assertThat(result.get("items")).asList().hasSize(1);
-    verify(adminUserRepository).findByRoleIn(eq(List.of("sales", "delivery")), any(Pageable.class));
+    verify(adminUserRepository)
+        .findByRoleInAndDeletedAtIsNull(eq(List.of("sales", "delivery")), any(Pageable.class));
     verify(adminUserRepository, never()).findAll(any(Pageable.class));
   }
 

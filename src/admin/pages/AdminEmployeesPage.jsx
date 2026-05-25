@@ -6,6 +6,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Search,
   Trash2,
@@ -28,10 +29,18 @@ const SEARCH_DEBOUNCE_MS = 300
 const HIGHLIGHT_MS = 6000
 
 const filterInputClass =
-  'w-full rounded-xl border border-steel/80 bg-ink/40 px-3 py-2 font-sans text-sm text-fog outline-none transition-colors focus:border-accent/60 admin-input'
+  'h-9 w-full rounded-lg border border-steel/80 bg-ink/40 px-2.5 py-1.5 font-sans text-sm text-fog outline-none transition-colors focus:border-accent/60 admin-input'
 
 const canvasClass =
-  '-mx-4 min-w-0 rounded-none bg-[#eaeded] px-4 py-5 dark:bg-ink/40 md:-mx-6 md:rounded-xl md:px-6 lg:-mx-0 lg:rounded-xl lg:px-8'
+  '-mx-4 min-w-0 rounded-none bg-[#eaeded] px-4 py-3 dark:bg-ink/40 md:-mx-6 md:rounded-xl md:px-5 lg:-mx-0 lg:rounded-xl lg:px-6'
+
+const PAGE_STACK = 'space-y-3'
+const FILTER_LABEL = 'mb-0.5 block font-mono text-[10px] uppercase tracking-wider text-hud'
+const FILTER_CARD = 'admin-card rounded-xl p-3 shadow-sm'
+const FILTER_CARD_HEAD = 'mb-2 border-b border-steel/40 pb-2'
+const TABLE_SECTION = 'rounded-xl border border-[#d5d9d9] bg-white shadow-sm dark:border-steel/60 dark:bg-slate'
+const TABLE_SECTION_HEAD = 'border-b border-[#e7e7e7] bg-[#fafafa] px-4 py-2 dark:border-steel/50 dark:bg-ink/15'
+const TABLE_EMPTY_CELL = 'px-4 py-8 text-center'
 
 function emptyForm() {
   return { phone: '', role: 'sales', name: '' }
@@ -55,10 +64,19 @@ function formatDateTime(iso) {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
 }
 
+function displayOrNa(value) {
+  if (value == null || value === '') return 'Not available'
+  const s = String(value).trim()
+  return s || 'Not available'
+}
+
 function employeeMatchesSearch(row, query) {
   if (!query) return true
   const q = query.toLowerCase()
-  const hay = [row.id, row.name, row.email, row.phone, row.role].filter(Boolean).join(' ').toLowerCase()
+  const hay = [row.id, row.name, row.phone, row.role]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
   return hay.includes(q)
 }
 
@@ -88,16 +106,26 @@ const ROLE_BADGE_STYLE = {
 }
 
 const TABLE_TH =
-  'px-4 py-2.5 align-middle text-left text-xs font-semibold text-[#565959] dark:text-mist lg:px-5 lg:py-3'
-const TABLE_CELL = 'px-4 py-2.5 align-middle text-left text-sm text-[#0f1111] dark:text-fog lg:px-5 lg:py-3'
+  'px-3 py-2 align-middle text-left text-xs font-semibold text-[#565959] dark:text-mist lg:px-4'
+const TABLE_CELL = 'px-3 py-2 align-middle text-left text-sm text-[#0f1111] dark:text-fog lg:px-4'
 const TABLE_CELL_META =
-  'px-4 py-2.5 align-middle text-left text-sm text-[#565959] dark:text-mist lg:px-5 lg:py-3'
+  'px-3 py-2 align-middle text-left text-sm text-[#565959] dark:text-mist lg:px-4'
 const TABLE_ROW =
-  'h-12 transition-colors hover:bg-[#f7fafa] dark:hover:bg-steel/15 [&>td]:align-middle'
+  'h-10 transition-colors hover:bg-[#f7fafa] dark:hover:bg-steel/15 [&>td]:align-middle'
+
+const WORKFORCE_FILTER_WRAP = 'min-w-[11.5rem] sm:min-w-[12.5rem]'
+const WORKFORCE_FILTER_SELECT = `${filterInputClass} w-full min-w-[11.5rem] sm:min-w-[12.5rem]`
+
+const DELETED_CELL_AT = 'whitespace-nowrap pr-4'
+const DELETED_CELL_ACTIONS = 'w-[5.5rem] pr-4 text-right align-middle'
 
 const MENU_MIN_WIDTH = 148
 const MENU_GAP = 6
 const MENU_EST_HEIGHT = 92
+const DELETED_MENU_EST_HEIGHT = 88
+
+const DETAIL_LABEL = 'text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist'
+const DETAIL_VALUE = 'mt-0.5 text-sm text-[#0f1111] dark:text-fog'
 
 function formatRoleLabel(role) {
   const r = String(role ?? '').toLowerCase()
@@ -197,7 +225,7 @@ function EmployeeRowActions({ row, onEdit, onDelete }) {
   }, [open])
 
   const actionBtnClass =
-    'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-[#565959] transition-colors hover:border-[#d5d9d9] hover:bg-white dark:text-mist dark:hover:border-steel/60 dark:hover:bg-steel/30'
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#565959] transition-colors hover:border-[#d5d9d9] hover:bg-white dark:text-mist dark:hover:border-steel/60 dark:hover:bg-steel/30'
 
   const menu =
     open && typeof document !== 'undefined'
@@ -272,6 +300,213 @@ function EmployeeRowActions({ row, onEdit, onDelete }) {
   )
 }
 
+function DeletedEmployeeRowActions({ row, restoreBusy, onViewDetails, onRestore }) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState(null)
+  const triggerRef = useRef(null)
+  const menuRef = useRef(null)
+  const label = row.name || row.phone || 'employee'
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const menuHeight = menuRef.current?.offsetHeight ?? DELETED_MENU_EST_HEIGHT
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openUpward = spaceBelow < menuHeight + MENU_GAP + 12
+    const top = openUpward ? rect.top - menuHeight - MENU_GAP : rect.bottom + MENU_GAP
+    const right = Math.max(8, window.innerWidth - rect.right)
+    setMenuPos({ top, right })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPos(null)
+      return
+    }
+    updateMenuPosition()
+    const raf1 = requestAnimationFrame(() => {
+      updateMenuPosition()
+      requestAnimationFrame(updateMenuPosition)
+    })
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    return () => {
+      cancelAnimationFrame(raf1)
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(ev) {
+      const target = ev.target
+      if (triggerRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const actionBtnClass =
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#565959] transition-colors hover:border-[#d5d9d9] hover:bg-white dark:text-mist dark:hover:border-steel/60 dark:hover:bg-steel/30'
+
+  const menu =
+    open && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: menuPos?.top ?? -9999,
+              right: menuPos?.right ?? 8,
+              minWidth: MENU_MIN_WIDTH,
+              zIndex: 200,
+              visibility: menuPos ? 'visible' : 'hidden',
+            }}
+            className="overflow-hidden rounded-lg border border-[#d5d9d9] bg-white py-1 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate dark:shadow-lg"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[#0f1111] hover:bg-[#f7fafa] dark:text-fog dark:hover:bg-steel/30"
+              onClick={() => {
+                setOpen(false)
+                onViewDetails(row)
+              }}
+            >
+              <Eye className="h-4 w-4 text-[#565959] dark:text-mist" aria-hidden />
+              View details
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={restoreBusy}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-accent hover:bg-accent-muted disabled:opacity-50 dark:hover:bg-accent-muted/40"
+              onClick={() => {
+                setOpen(false)
+                onRestore(row)
+              }}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden />
+              {restoreBusy ? 'Restoring…' : 'Restore employee'}
+            </button>
+          </div>,
+          document.body,
+        )
+      : null
+
+  return (
+    <div className="flex justify-end">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`${actionBtnClass} ${open ? 'border-[#d5d9d9] bg-white dark:border-steel/60 dark:bg-steel/30' : ''}`}
+        aria-label={`Actions for ${label}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {menu}
+    </div>
+  )
+}
+
+function DeletedEmployeeDetailsModal({ employee, onClose }) {
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm overflow-hidden rounded-2xl border border-steel/60 bg-slate shadow-[0_25px_50px_-12px_rgba(0,0,0,0.45)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-deleted-employee-details-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
+          <h2
+            id="admin-deleted-employee-details-title"
+            className="font-display text-base font-bold tracking-tight text-fog"
+          >
+            Deleted employee
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-steel/60 text-fog hover:bg-steel/30"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <dl className="space-y-3 p-5">
+          <div>
+            <dt className={DETAIL_LABEL}>Name</dt>
+            <dd className={DETAIL_VALUE}>{displayOrNa(employee.name)}</dd>
+          </div>
+          <div>
+            <dt className={DETAIL_LABEL}>Phone</dt>
+            <dd className={`${DETAIL_VALUE} font-mono tabular-nums`}>{displayOrNa(employee.phone)}</dd>
+          </div>
+          <div>
+            <dt className={DETAIL_LABEL}>Role</dt>
+            <dd className={DETAIL_VALUE}>
+              {employee.role ? formatRoleLabel(employee.role) : 'Not available'}
+            </dd>
+          </div>
+          <div>
+            <dt className={DETAIL_LABEL}>Deletion reason</dt>
+            <dd className={`${DETAIL_VALUE} break-words leading-snug`}>{displayOrNa(employee.deletedReason)}</dd>
+          </div>
+          <div>
+            <dt className={DETAIL_LABEL}>Deleted at</dt>
+            <dd className={DETAIL_VALUE}>
+              {employee.deletedAt ? formatDateTime(employee.deletedAt) : 'Not available'}
+            </dd>
+          </div>
+        </dl>
+        <div className="flex justify-end border-t border-steel/50 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-steel/70 px-5 text-sm font-semibold text-mist hover:border-accent/60 hover:text-accent"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AdminEmployeesPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -294,6 +529,13 @@ export function AdminEmployeesPage() {
   const [editExistingPhoto, setEditExistingPhoto] = useState('')
   const [clearEditPhoto, setClearEditPhoto] = useState(false)
   const [editPhotoLoadError, setEditPhotoLoadError] = useState(false)
+  const [workforceView, setWorkforceView] = useState('active')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
+  const [restoreBusyPhone, setRestoreBusyPhone] = useState(null)
+  const [deletedDetailsTarget, setDeletedDetailsTarget] = useState(null)
 
   const displaySummary = useMemo(
     () => buildDisplaySummary(items, apiSummary),
@@ -320,13 +562,15 @@ export function AdminEmployeesPage() {
     return () => window.clearTimeout(t)
   }, [highlightPhone])
 
+  const isDeletedView = workforceView === 'deleted'
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const [employees, stats] = await Promise.all([
-        adminService.listEmployees(),
-        adminService.getEmployeesSummary(),
+        adminService.listEmployees({ deleted: isDeletedView }),
+        isDeletedView ? Promise.resolve(null) : adminService.getEmployeesSummary(),
       ])
       const sorted = [...employees].sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -342,7 +586,7 @@ export function AdminEmployeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isDeletedView])
 
   useEffect(() => {
     void load()
@@ -350,7 +594,20 @@ export function AdminEmployeesPage() {
 
   useEffect(() => {
     setVisibleCount(LIST_PAGE_SIZE)
-  }, [searchQuery, roleFilter, statusFilter])
+  }, [searchQuery, roleFilter, statusFilter, workforceView])
+
+  useEffect(() => {
+    if (!deleteTarget) return undefined
+    const onKeyDown = (ev) => {
+      if (ev.key === 'Escape' && !deleteBusy) {
+        setDeleteTarget(null)
+        setDeleteReason('')
+        setDeleteError(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [deleteTarget, deleteBusy])
 
   useEffect(() => {
     if (!editingPhone) return undefined
@@ -369,13 +626,15 @@ export function AdminEmployeesPage() {
   const filteredItems = useMemo(() => {
     return items.filter((row) => {
       if (roleFilter && String(row.role ?? '').toLowerCase() !== roleFilter) return false
-      const displayStatus = getEmployeeDisplayStatus(row.availability)
-      if (statusFilter === 'online' && displayStatus !== 'online') return false
-      if (statusFilter === 'offline' && displayStatus !== 'offline') return false
-      if (statusFilter === 'busy' && displayStatus !== 'busy') return false
+      if (!isDeletedView) {
+        const displayStatus = getEmployeeDisplayStatus(row.availability)
+        if (statusFilter === 'online' && displayStatus !== 'online') return false
+        if (statusFilter === 'offline' && displayStatus !== 'offline') return false
+        if (statusFilter === 'busy' && displayStatus !== 'busy') return false
+      }
       return employeeMatchesSearch(row, searchQuery)
     })
-  }, [items, searchQuery, roleFilter, statusFilter])
+  }, [items, searchQuery, roleFilter, statusFilter, isDeletedView])
 
   const visibleItems = filteredItems.slice(0, visibleCount)
   const hasMore = visibleCount < filteredItems.length
@@ -426,19 +685,52 @@ export function AdminEmployeesPage() {
     }
   }
 
-  async function removeEmployee(row) {
-    const label = row.name || row.phone || 'this employee'
-    if (!window.confirm(`Delete employee "${label}"? This cannot be undone.`)) return
-    setSaving(true)
+  function openDeleteConfirm(row) {
+    setDeleteTarget(row)
+    setDeleteReason('')
+    setDeleteError(null)
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteBusy) return
+    setDeleteTarget(null)
+    setDeleteReason('')
+    setDeleteError(null)
+  }
+
+  const deleteReasonValid = deleteReason.trim().length > 0
+
+  async function confirmDeleteEmployee() {
+    if (!deleteTarget?.phone || deleteBusy || !deleteReasonValid) return
+    setDeleteBusy(true)
+    setDeleteError(null)
+    try {
+      await adminService.removeEmployee(deleteTarget.phone, { reason: deleteReason.trim() })
+      if (editingPhone === deleteTarget.phone) setEditingPhone(null)
+      setDeleteTarget(null)
+      setDeleteReason('')
+      setSuccessMessage('Employee deleted successfully')
+      await load()
+    } catch (e) {
+      setDeleteError(getFetchErrorMessage(e))
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
+  async function restoreEmployeeRow(row) {
+    if (!row?.phone || restoreBusyPhone) return
+    setRestoreBusyPhone(row.phone)
     setError(null)
     try {
-      await adminService.removeEmployee(row.phone)
-      if (editingPhone === row.phone) setEditingPhone(null)
-      await load()
+      await adminService.restoreEmployee(row.phone)
+      setDeletedDetailsTarget(null)
+      setSuccessMessage('Employee restored successfully')
+      setWorkforceView('active')
     } catch (e) {
       setError(getFetchErrorMessage(e))
     } finally {
-      setSaving(false)
+      setRestoreBusyPhone(null)
     }
   }
 
@@ -489,19 +781,19 @@ export function AdminEmployeesPage() {
 
   return (
     <div className={canvasClass}>
-      <div className="mx-auto max-w-7xl space-y-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className={`mx-auto max-w-7xl ${isDeletedView ? 'space-y-2' : PAGE_STACK}`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-[#0f1111] dark:text-fog md:text-3xl">
+            <h1 className="font-display text-xl font-bold uppercase tracking-tight text-[#0f1111] dark:text-fog md:text-2xl">
               Employees
             </h1>
-            <p className="mt-1 text-sm text-[#565959] dark:text-mist">
+            <p className="mt-0.5 text-xs text-[#565959] dark:text-mist sm:text-sm">
               Manage workforce employees and live availability
             </p>
           </div>
           <Link
             to="/admin/employees/new"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 font-display text-sm font-bold uppercase tracking-wide text-on-accent shadow-md transition-all hover:brightness-110 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 font-display text-xs font-bold uppercase tracking-wide text-on-accent shadow-md transition-all hover:brightness-110 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 sm:text-sm"
           >
             <Plus className="h-4 w-4" strokeWidth={2.5} />
             Add employee
@@ -511,7 +803,7 @@ export function AdminEmployeesPage() {
         {successMessage ? (
           <div
             role="status"
-            className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-fog shadow-sm dark:border-emerald-500/30 dark:bg-emerald-500/15"
+            className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-fog shadow-sm dark:border-emerald-500/30 dark:bg-emerald-500/15"
           >
             <span className="font-medium text-emerald-800 dark:text-emerald-200">{successMessage}</span>
             <button
@@ -526,12 +818,13 @@ export function AdminEmployeesPage() {
         ) : null}
 
         {error ? (
-          <div className="rounded-xl border border-flare/40 bg-flare-muted px-4 py-3 text-sm text-fog shadow-sm">
+          <div className="rounded-lg border border-flare/40 bg-flare-muted px-3 py-2 text-sm text-fog shadow-sm">
             {error}
           </div>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {!isDeletedView ? (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <AdminStatCard label="Total Employees" value={displaySummary.total} icon={Users} accent="text-hud" />
           <AdminStatCard
             label="Online Employees"
@@ -548,15 +841,20 @@ export function AdminEmployeesPage() {
             tone="offline"
           />
         </div>
+        ) : null}
 
-        <section className="admin-card rounded-2xl p-4 shadow-sm sm:p-5">
-          <div className="mb-3 border-b border-steel/40 pb-3">
+        <section className={FILTER_CARD}>
+          <div className={FILTER_CARD_HEAD}>
             <h2 className="text-sm font-semibold text-fog">Search &amp; filters</h2>
-            <p className="mt-0.5 text-xs text-mist">Find employees by details or availability</p>
+            {!isDeletedView ? (
+              <p className="mt-0.5 text-xs text-mist">Find employees by details or availability</p>
+            ) : null}
           </div>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] lg:items-end">
-            <div className="md:col-span-2 lg:col-span-1">
-              <label htmlFor="emp-search" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+          <div
+            className={`grid gap-2 md:grid-cols-2 lg:items-end ${isDeletedView ? 'lg:grid-cols-[1.4fr_1fr_1fr]' : 'lg:grid-cols-[1.2fr_1fr_1fr_1fr]'}`}
+          >
+            <div className={isDeletedView ? '' : 'md:col-span-2 lg:col-span-1'}>
+              <label htmlFor="emp-search" className={FILTER_LABEL}>
                 Search
               </label>
               <div className="relative">
@@ -566,14 +864,14 @@ export function AdminEmployeesPage() {
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Name, phone, email, or role"
+                  placeholder="Name, phone, or role"
                   className={`${filterInputClass} pl-9`}
                   autoComplete="off"
                 />
               </div>
             </div>
             <div>
-              <label htmlFor="emp-role-filter" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
+              <label htmlFor="emp-role-filter" className={FILTER_LABEL}>
                 Role
               </label>
               <select
@@ -587,73 +885,121 @@ export function AdminEmployeesPage() {
                 <option value="delivery">Delivery</option>
               </select>
             </div>
-            <div>
-              <label htmlFor="emp-status-filter" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
-                Status
+            <div className={WORKFORCE_FILTER_WRAP}>
+              <label htmlFor="emp-workforce-filter" className={FILTER_LABEL}>
+                Workforce
               </label>
               <select
-                id="emp-status-filter"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className={filterInputClass}
+                id="emp-workforce-filter"
+                value={workforceView}
+                onChange={(e) => setWorkforceView(e.target.value)}
+                className={WORKFORCE_FILTER_SELECT}
               >
-                <option value="">All</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-                <option value="busy">Busy</option>
+                <option value="active">Active employees</option>
+                <option value="deleted">Deleted employees</option>
               </select>
             </div>
+            {!isDeletedView ? (
+              <div>
+                <label htmlFor="emp-status-filter" className={FILTER_LABEL}>
+                  Status
+                </label>
+                <select
+                  id="emp-status-filter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className={filterInputClass}
+                >
+                  <option value="">All</option>
+                  <option value="online">Online</option>
+                  <option value="offline">Offline</option>
+                  <option value="busy">Busy</option>
+                </select>
+              </div>
+            ) : null}
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#d5d9d9] bg-white shadow-sm dark:border-steel/60 dark:bg-slate">
-          <div className="flex flex-col gap-1 border-b border-[#e7e7e7] bg-[#fafafa] px-5 py-3 dark:border-steel/50 dark:bg-ink/15 sm:flex-row sm:items-center sm:justify-between">
+        <section className={TABLE_SECTION}>
+          <div className={TABLE_SECTION_HEAD}>
             <div>
-              <h2 className="text-sm font-semibold text-[#0f1111] dark:text-fog">Workforce</h2>
-              <p className="text-xs text-[#565959] dark:text-mist">
-                {loading ? 'Loading…' : `${filteredItems.length} employee${filteredItems.length === 1 ? '' : 's'}`}
+              <h2 className="text-sm font-semibold leading-tight text-[#0f1111] dark:text-fog">
+                {isDeletedView ? 'Deleted employees' : 'Active workforce'}
+              </h2>
+              <p className="text-[11px] leading-tight text-[#565959] dark:text-mist">
+                {loading
+                  ? 'Loading…'
+                  : isDeletedView
+                    ? `${filteredItems.length} deleted employee${filteredItems.length === 1 ? '' : 's'}`
+                    : `${filteredItems.length} active employee${filteredItems.length === 1 ? '' : 's'}`}
               </p>
             </div>
           </div>
           <div className="overflow-x-auto lg:overflow-x-visible">
             <table className="w-full border-collapse text-left lg:table-fixed">
               <colgroup className="hidden lg:table-column-group">
-                <col style={{ width: '24%' }} />
-                <col style={{ width: '16%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '12%' }} />
+                {isDeletedView ? (
+                  <>
+                    <col style={{ width: '26%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '30%' }} />
+                    <col style={{ width: '18%' }} />
+                  </>
+                ) : (
+                  <>
+                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '12%' }} />
+                  </>
+                )}
               </colgroup>
               <thead>
                 <tr className="border-b border-[#e7e7e7] bg-[#fafafa] dark:border-steel/50 dark:bg-ink/15">
-                  <th className={TABLE_TH}>Employee</th>
-                  <th className={TABLE_TH}>Contact</th>
-                  <th className={TABLE_TH}>Role</th>
-                  <th className={TABLE_TH}>Status</th>
-                  <th className={TABLE_TH}>Login</th>
-                  <th className={TABLE_TH}>Logout</th>
-                  <th className={`${TABLE_TH} text-right`}>Actions</th>
+                  {isDeletedView ? (
+                    <>
+                      <th className={TABLE_TH}>Employee</th>
+                      <th className={TABLE_TH}>Phone</th>
+                      <th className={TABLE_TH}>Role</th>
+                      <th className={TABLE_TH}>Deleted at</th>
+                      <th className={`${TABLE_TH} text-right`}>Actions</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className={TABLE_TH}>Employee</th>
+                      <th className={TABLE_TH}>Contact</th>
+                      <th className={TABLE_TH}>Role</th>
+                      <th className={TABLE_TH}>Status</th>
+                      <th className={TABLE_TH}>Login</th>
+                      <th className={TABLE_TH}>Logout</th>
+                      <th className={`${TABLE_TH} text-right`}>Actions</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#e7e7e7] bg-white dark:divide-steel/40 dark:bg-slate">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-14 text-center text-mist">
+                    <td colSpan={isDeletedView ? 5 : 7} className={`${TABLE_EMPTY_CELL} text-mist`}>
                       Loading employees…
                     </td>
                   </tr>
                 ) : visibleItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-14 text-center">
+                    <td colSpan={isDeletedView ? 5 : 7} className={TABLE_EMPTY_CELL}>
                       <p className="font-medium text-fog">No employees found</p>
                       <p className="mt-1 text-sm text-mist">
                         {items.length === 0
-                          ? 'Add your first employee to get started.'
+                          ? isDeletedView
+                            ? 'No deleted employees on record.'
+                            : 'Add your first employee to get started.'
                           : 'Try adjusting search or filters.'}
                       </p>
-                      {items.length === 0 ? (
+                      {!isDeletedView && items.length === 0 ? (
                         <Link
                           to="/admin/employees/new"
                           className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-on-accent shadow-sm"
@@ -672,41 +1018,60 @@ export function AdminEmployeesPage() {
                         key={row.id || row.phone}
                         className={`${TABLE_ROW} ${isHighlighted ? 'bg-emerald-500/10' : ''}`}
                       >
-                        <td className={TABLE_CELL}>
-                          <div className="flex items-center gap-3">
-                            <EmployeeAvatar employee={row} />
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        {isDeletedView ? (
+                          <>
+                            <td className={TABLE_CELL}>
                               <p className="truncate font-semibold text-fog">{row.name || '—'}</p>
-                              {isHighlighted ? (
-                                <span className="inline-flex shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-on-accent">
-                                  New
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </td>
-                        <td className={`${TABLE_CELL} font-mono tabular-nums`}>{row.phone || '—'}</td>
-                        <td className={TABLE_CELL}>
-                          <div className="flex items-center">
-                            <RoleBadge role={row.role} />
-                          </div>
-                        </td>
-                        <td className={TABLE_CELL}>
-                          <div className="flex items-center">
-                            <AvailabilityBadge availability={row.availability} />
-                          </div>
-                        </td>
-                        <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
-                          {formatDateTime(row.lastLoginAt)}
-                        </td>
-                        <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
-                          {formatDateTime(row.lastLogoutAt)}
-                        </td>
-                        <td className={`${TABLE_CELL} text-right`}>
-                          <div className="flex items-center justify-end">
-                            <EmployeeRowActions row={row} onEdit={startEdit} onDelete={removeEmployee} />
-                          </div>
-                        </td>
+                            </td>
+                            <td className={`${TABLE_CELL} font-mono tabular-nums`}>{row.phone || '—'}</td>
+                            <td className={TABLE_CELL}>
+                              <RoleBadge role={row.role} />
+                            </td>
+                            <td className={`${TABLE_CELL_META} ${DELETED_CELL_AT}`}>
+                              {row.deletedAt ? formatDateTime(row.deletedAt) : 'Not available'}
+                            </td>
+                            <td className={`${TABLE_CELL} ${DELETED_CELL_ACTIONS}`}>
+                              <DeletedEmployeeRowActions
+                                row={row}
+                                restoreBusy={restoreBusyPhone === row.phone}
+                                onViewDetails={setDeletedDetailsTarget}
+                                onRestore={(r) => void restoreEmployeeRow(r)}
+                              />
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className={TABLE_CELL}>
+                              <div className="flex items-center gap-3">
+                                <EmployeeAvatar employee={row} />
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  <p className="truncate font-semibold text-fog">{row.name || '—'}</p>
+                                  {isHighlighted ? (
+                                    <span className="inline-flex shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-on-accent">
+                                      New
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </td>
+                            <td className={`${TABLE_CELL} font-mono tabular-nums`}>{row.phone || '—'}</td>
+                            <td className={TABLE_CELL}>
+                              <RoleBadge role={row.role} />
+                            </td>
+                            <td className={TABLE_CELL}>
+                              <AvailabilityBadge availability={row.availability} />
+                            </td>
+                            <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
+                              {formatDateTime(row.lastLoginAt)}
+                            </td>
+                            <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
+                              {formatDateTime(row.lastLogoutAt)}
+                            </td>
+                            <td className={`${TABLE_CELL} text-right`}>
+                              <EmployeeRowActions row={row} onEdit={startEdit} onDelete={openDeleteConfirm} />
+                            </td>
+                          </>
+                        )}
                       </tr>
                     )
                   })
@@ -715,7 +1080,7 @@ export function AdminEmployeesPage() {
             </table>
           </div>
           {hasMore ? (
-            <div className="flex justify-center border-t border-steel/40 px-4 py-3">
+            <div className="flex justify-center border-t border-steel/40 px-3 py-2">
               <button
                 type="button"
                 onClick={() => setVisibleCount((n) => n + LIST_PAGE_SIZE)}
@@ -726,6 +1091,99 @@ export function AdminEmployeesPage() {
             </div>
           ) : null}
         </section>
+
+        {deletedDetailsTarget ? (
+          <DeletedEmployeeDetailsModal
+            employee={deletedDetailsTarget}
+            onClose={() => setDeletedDetailsTarget(null)}
+          />
+        ) : null}
+
+        {deleteTarget ? (
+          <div
+            className="fixed inset-0 z-[95] flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm"
+            role="presentation"
+            onClick={closeDeleteConfirm}
+          >
+            <div
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-steel/60 bg-slate shadow-[0_25px_50px_-12px_rgba(0,0,0,0.45)]"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-delete-employee-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-steel/50 px-5 py-4">
+                <h2 id="admin-delete-employee-title" className="font-display text-base font-bold tracking-tight text-fog">
+                  Delete employee?
+                </h2>
+                <button
+                  type="button"
+                  onClick={closeDeleteConfirm}
+                  disabled={deleteBusy}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-steel/60 text-fog hover:bg-steel/30 disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="space-y-3 p-5">
+                <p className="text-sm text-mist">
+                  This employee will be removed from the active workforce list and unassigned from open deliveries.
+                  You can restore them later from the deleted employees view.
+                </p>
+                <div>
+                  <label htmlFor="emp-delete-reason" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-mist">
+                    Reason for deletion <span className="text-flare">*</span>
+                  </label>
+                  <textarea
+                    id="emp-delete-reason"
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    rows={3}
+                    required
+                    placeholder="Enter why this employee is being removed…"
+                    className="w-full resize-y rounded-lg border border-steel/80 bg-ink/40 px-3 py-2 text-sm text-fog outline-none focus:border-accent/60 admin-input"
+                  />
+                </div>
+                {deleteTarget.name || deleteTarget.phone ? (
+                  <p className="rounded-lg border border-steel/50 bg-ink/20 px-3 py-2 text-sm text-fog">
+                    {deleteTarget.name ? (
+                      <span className="font-semibold">{deleteTarget.name}</span>
+                    ) : null}
+                    {deleteTarget.name && deleteTarget.phone ? (
+                      <span className="text-mist"> · </span>
+                    ) : null}
+                    {deleteTarget.phone ? (
+                      <span className="font-mono text-mist">{deleteTarget.phone}</span>
+                    ) : null}
+                  </p>
+                ) : null}
+                {deleteError ? (
+                  <p className="rounded border border-flare/40 bg-flare-muted px-3 py-2 text-sm text-fog">{deleteError}</p>
+                ) : null}
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-steel/50 bg-slate px-5 py-4">
+                <button
+                  type="button"
+                  onClick={closeDeleteConfirm}
+                  disabled={deleteBusy}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-steel/70 px-5 text-sm font-semibold text-mist hover:border-hud/60 hover:text-hud disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmDeleteEmployee()}
+                  disabled={deleteBusy || !deleteReasonValid}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-flare px-5 text-sm font-semibold uppercase tracking-[0.08em] text-on-accent shadow-sm disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deleteBusy ? 'Deleting…' : 'Delete employee'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {editingPhone ? (
           <div

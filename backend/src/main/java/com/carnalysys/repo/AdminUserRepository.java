@@ -24,9 +24,23 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
 
   Page<AdminUser> findByRoleIn(Collection<String> roles, Pageable pageable);
 
+  List<AdminUser> findByRoleInAndDeletedAtIsNull(Collection<String> roles, Sort sort);
+
+  Page<AdminUser> findByRoleInAndDeletedAtIsNull(Collection<String> roles, Pageable pageable);
+
+  List<AdminUser> findByRoleInAndDeletedAtIsNotNull(Collection<String> roles, Sort sort);
+
+  Page<AdminUser> findByRoleInAndDeletedAtIsNotNull(Collection<String> roles, Pageable pageable);
+
   long countByRoleIn(Collection<String> roles);
+
+  long countByRoleInAndDeletedAtIsNull(Collection<String> roles);
 
   long countByRoleInAndOnboardingStatus(Collection<String> roles, String onboardingStatus);
 
-  long countByRoleInAndCreatedAtGreaterThanEqual(Collection<String> roles, Instant createdAt);
+  long countByRoleInAndDeletedAtIsNullAndOnboardingStatus(
+      Collection<String> roles, String onboardingStatus);
+
+  long countByRoleInAndDeletedAtIsNullAndCreatedAtGreaterThanEqual(
+      Collection<String> roles, Instant createdAt);
 }

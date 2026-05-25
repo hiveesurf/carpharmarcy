@@ -196,6 +196,16 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
   }
 
   @Test
+  void orderByIdOk() throws Exception {
+    when(adminApiService.getOrderAdmin("ord_1"))
+        .thenReturn(Map.of("order", Map.of("id", "ord_1", "status", "placed")));
+    mockMvc
+        .perform(get("/api/v1/admin/orders/ord_1").with(asAdmin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.order.id").value("ord_1"));
+  }
+
+  @Test
   void orderStatusOk() throws Exception {
     when(adminApiService.patchOrderStatus("ord_1", "confirmed"))
         .thenReturn(Map.of("order", Map.of("id", "ord_1")));
@@ -341,7 +351,7 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void employeesListOk() throws Exception {
-    when(adminApiService.listEmployeesPage(0, 5))
+    when(adminApiService.listEmployeesPage(0, 5, null))
         .thenReturn(
             Map.of(
                 "items",
@@ -399,9 +409,13 @@ class AdminV1ControllerWebMvcTest extends ControllerSliceTestBase {
 
   @Test
   void deleteEmployeeOk() throws Exception {
-    when(adminApiService.deleteEmployee("1234567890")).thenReturn(Map.of("removed", "1234567890"));
+    when(adminApiService.deleteEmployee("1234567890", "Left")).thenReturn(Map.of("removed", "1234567890"));
     mockMvc
-        .perform(delete("/api/v1/admin/employees/1234567890").with(asAdmin()))
+        .perform(
+            delete("/api/v1/admin/employees/1234567890")
+                .with(asAdmin())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Left\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.removed").value("1234567890"));
   }
