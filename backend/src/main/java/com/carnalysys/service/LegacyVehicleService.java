@@ -115,14 +115,137 @@ public class LegacyVehicleService {
     return out;
   }
 
-  public List<Map<String, String>> years() {
-    List<String> y = List.of("2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018");
-    return y.stream().map(v -> Map.of("id", v, "label", v)).toList();
+  @Transactional(readOnly = true)
+  public List<Map<String, String>> years(String brandId, String modelId) {
+    if (brandId == null || brandId.isBlank()) {
+      return List.of();
+    }
+    List<CarModelEntity> scoped = filterPublishedCars(brandId, modelId, null);
+    if (!scoped.isEmpty()) {
+      return scoped.stream()
+          .map(CarModelEntity::getModelYear)
+          .filter(y -> y != null && y > 0)
+          .map(Short::intValue)
+          .distinct()
+          .sorted(Comparator.reverseOrder())
+          .map(y -> String.valueOf(y))
+          .map(y -> Map.of("id", y, "label", y))
+          .toList();
+    }
+    List<String> fallback = List.of("2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018");
+    return fallback.stream().map(v -> Map.of("id", v, "label", v)).toList();
   }
 
-  public List<Map<String, String>> variants() {
-    List<String> v = List.of("Base", "Mid", "Top", "Sport", "Diesel", "Petrol");
-    return v.stream().map(s -> Map.of("id", SlugUtil.slug(s), "label", s)).toList();
+  /**
+   * Fuel / variant options for hero fitment (e.g. Petrol, Diesel). Derived from published {@code
+   * car_models} for the selected brand, model line, and year.
+   */
+  @Transactional(readOnly = true)
+  public List<Map<String, String>> variants(String brandId, String modelId, String yearRaw) {
+    if (brandId == null || brandId.isBlank()) {
+      return List.of();
+    }
+    Short year = parseYear(yearRaw);
+    List<CarModelEntity> scoped = filterPublishedCars(brandId, modelId, year);
+    LinkedHashSet<String> labels = new LinkedHashSet<>();
+    for (CarModelEntity c : scoped) {
+      String fuel = formatOptionLabel(c.getFuel());
+      if (!fuel.isBlank()) {
+        labels.add(fuel);
+        continue;
+      }
+      String variant = formatOptionLabel(c.getVariant());
+      if (!variant.isBlank()) {
+        labels.add(variant);
+      }
+    }
+    return labels.stream()
+        .map(label -> Map.of("id", SlugUtil.slug(label), "label", label))
+        .toList();
+  }
+
+  private static Short parseYear(String yearRaw) {
+    if (yearRaw == null || yearRaw.isBlank()) {
+      return null;
+    }
+    try {
+      int y = Integer.parseInt(yearRaw.trim());
+      return y > 0 ? (short) y : null;
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  private List<CarModelEntity> filterPublishedCars(String brandId, String modelId, Short year) {
+    List<CarModelEntity> rows =
+        carModelRepository.findByPublishedTrueAndDeletedAtIsNullOrderByMakeAscModelAscModelYearDesc();
+    if (rows.isEmpty()) {
+      return List.of();
+    }
+    String makeKey = null;
+    String modelKey = null;
+    if (modelId != null && !modelId.isBlank()) {
+      var anchorOpt =
+          carModelRepository
+              .findById(modelId.trim())
+              .filter(c -> c.getDeletedAt() == null && c.isPublished());
+      if (anchorOpt.isPresent()) {
+        CarModelEntity anchor = anchorOpt.get();
+        makeKey = normalizeKey(anchor.getMake());
+        modelKey = normalizeKey(anchor.getModel());
+      }
+    }
+    final String resolvedMakeKey = makeKey;
+    final String resolvedModelKey = modelKey;
+    return rows.stream()
+        .filter(
+            c -> {
+              if (brandId != null && !brandId.isBlank()) {
+                if (!SlugUtil.slug(c.getMake()).equals(brandId.trim())) {
+                  return false;
+                }
+              }
+              if (resolvedMakeKey != null && resolvedModelKey != null) {
+                if (!normalizeKey(c.getMake()).equals(resolvedMakeKey)
+                    || !normalizeKey(c.getModel()).equals(resolvedModelKey)) {
+                  return false;
+                }
+              }
+              if (year != null) {
+                return year.equals(c.getModelYear());
+              }
+              return true;
+            })
+        .toList();
+  }
+
+  private static String normalizeKey(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value.trim().replaceAll("\\s+", " ").toLowerCase();
+  }
+
+  private static String formatOptionLabel(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return "";
+    }
+    String[] parts = raw.trim().replaceAll("\\s+", " ").split(" ");
+    StringBuilder sb = new StringBuilder();
+    for (String part : parts) {
+      if (part.isEmpty()) {
+        continue;
+      }
+      if (!sb.isEmpty()) {
+        sb.append(' ');
+      }
+      String lower = part.toLowerCase();
+      sb.append(Character.toUpperCase(lower.charAt(0)));
+      if (lower.length() > 1) {
+        sb.append(lower.substring(1));
+      }
+    }
+    return sb.toString();
   }
 
   private Map<String, Object> toCarMap(CarModelEntity c) {

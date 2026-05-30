@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
@@ -10,35 +10,57 @@ import { apiV1Base } from '../../api/client.js'
 import { fetchCategories } from '../../services/categoryService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { ApiSectionError } from '../ui/ApiSectionError'
+import { catalogHref } from '../../lib/partBrand.js'
+import { partDisplayImage } from '../../lib/productImage.js'
 
-const SHOWCASE_ORDER = ['Brakes', 'Filters', 'Wheels', 'Engine', 'Electrical']
+const SHOWCASE_FALLBACK_ORDER = ['Brakes', 'Filters', 'Wheels', 'Engine', 'Electrical']
+const SHOWCASE_LIMIT = 5
 
-function categoryShowcase() {
-  return SHOWCASE_ORDER.map((cat) => PARTS_CATALOG.find((p) => p.category === cat)).filter(Boolean)
+function fallbackShowcaseRows() {
+  return SHOWCASE_FALLBACK_ORDER.map((cat) => PARTS_CATALOG.find((p) => p.category === cat)).filter(Boolean)
 }
 
 export function ShopByCategories() {
+  const useApi = Boolean(apiV1Base())
+  const [categories, setCategories] = useState([])
   const [categoriesError, setCategoriesError] = useState(null)
   const [categoriesRetryKey, setCategoriesRetryKey] = useState(0)
 
   useEffect(() => {
-    if (!apiV1Base()) return
+    if (!useApi) return
     let cancel = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale error before refetch
     setCategoriesError(null)
     fetchCategories()
-      .then(() => {
-        if (!cancel) setCategoriesError(null)
+      .then((items) => {
+        if (!cancel) setCategories(Array.isArray(items) ? items : [])
       })
       .catch((e) => {
-        if (!cancel) setCategoriesError(getFetchErrorMessage(e))
+        if (!cancel) {
+          setCategories([])
+          setCategoriesError(getFetchErrorMessage(e))
+        }
       })
     return () => {
       cancel = true
     }
-  }, [categoriesRetryKey])
+  }, [useApi, categoriesRetryKey])
 
-  const rows = categoryShowcase()
+  const rows = useMemo(() => {
+    if (useApi && categories.length > 0) {
+      return categories.slice(0, SHOWCASE_LIMIT).map((cat) => ({
+        key: cat.id || cat.name,
+        category: cat.name,
+        href: catalogHref({ category: cat.name }),
+        image: null,
+      }))
+    }
+    return fallbackShowcaseRows().map((part) => ({
+      key: part.category,
+      category: part.category,
+      href: catalogHref({ category: part.category }),
+      image: getPartImage(part.imageKey),
+    }))
+  }, [useApi, categories])
 
   return (
     <section
@@ -79,7 +101,7 @@ export function ShopByCategories() {
           </Link>
         </motion.header>
 
-        {apiV1Base() && categoriesError ? (
+        {useApi && categoriesError ? (
           <div className="mb-8">
             <ApiSectionError
               title="Category list could not sync"
@@ -87,9 +109,6 @@ export function ShopByCategories() {
               onRetry={() => setCategoriesRetryKey((k) => k + 1)}
               className="text-left sm:text-center"
             />
-            <p className="mt-3 text-center font-sans text-xs text-mist">
-              Category tiles below are static highlights; live counts come from the API when it is available.
-            </p>
           </div>
         ) : null}
 
@@ -100,18 +119,23 @@ export function ShopByCategories() {
           whileInView="visible"
           viewport={viewportOnce}
         >
-          {rows.map((part) => {
-            const img = getPartImage(part.imageKey)
+          {rows.map((row) => {
+            const tileImg =
+              row.image ??
+              (() => {
+                const sample = PARTS_CATALOG.find((p) => p.category === row.category)
+                return sample ? partDisplayImage(sample) : getPartImage('brakes')
+              })()
             return (
-              <motion.li key={part.category} variants={staggerItem}>
+              <motion.li key={row.key} variants={staggerItem}>
                 <Link
-                  to="/catalog"
+                  to={row.href}
                   className="ad-store-card group flex h-full flex-col overflow-hidden rounded-xl border border-steel/80 bg-ink shadow-[0_8px_30px_-12px_rgba(0,0,0,0.12)] transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-16px_rgba(0,51,102,0.18)]"
                 >
                   <div className="relative aspect-[4/3] overflow-hidden bg-slate">
                     <SafeImg
-                      src={img.src}
-                      alt={img.alt}
+                      src={tileImg.src}
+                      alt={tileImg.alt}
                       fw={640}
                       fh={480}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -121,7 +145,7 @@ export function ShopByCategories() {
                     />
                   </div>
                   <p className="border-t border-steel/60 px-3 py-3 text-center font-display text-sm font-bold uppercase tracking-wide text-fog">
-                    {part.category}
+                    {row.category}
                   </p>
                 </Link>
               </motion.li>

@@ -10,6 +10,11 @@ function normalizeOtpPhone(phone) {
   return digits.slice(-10)
 }
 
+/** Strip spaces/dashes so pasted "1 2 3 4 5 6" matches backend "123456". */
+function normalizeOtpCode(otp) {
+  return String(otp ?? '').replace(/\D/g, '')
+}
+
 /** Profile from DB; null if unauthenticated or error. */
 export async function fetchSessionUser() {
   if (!apiV1Base()) return null
@@ -37,7 +42,7 @@ export async function verifyOtp(phone, otp) {
     )
   }
   const digits = normalizeOtpPhone(phone)
-  const code = String(otp)
+  const code = normalizeOtpCode(otp)
   const res = await authApi.verifyOtp(digits, code)
   setAccessToken(res.data.accessToken)
   clearApiSessionId()

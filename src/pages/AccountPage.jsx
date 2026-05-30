@@ -13,17 +13,33 @@ import {
   postUserAvatar,
 } from '../services/userService.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
+import {
+  buildAddressPayload,
+  getAddressSaveErrorMessage,
+  validateAddressForm,
+} from '../lib/addressHelpers.js'
 import { resolveApiAssetUrl } from '../lib/resolveApiAssetUrl.js'
 import { formatPublicIdentityInitials } from '../lib/identityDisplayLabel.js'
 import { Button } from '../components/ui/Button'
 
+const ADDR_FIELDS = [
+  { key: 'line1', label: 'Address line 1', required: true },
+  { key: 'line2', label: 'Address line 2 (optional)', required: false },
+  { key: 'city', label: 'City', required: true },
+  { key: 'state', label: 'State', required: false },
+  { key: 'pincode', label: 'Pincode', required: true },
+  { key: 'label', label: 'Label (e.g. Home, Office)', required: false },
+]
+
 const emptyAddr = () => ({
+  recipientName: '',
+  recipientPhone: '',
   line1: '',
   line2: '',
   city: '',
   state: '',
   pincode: '',
-  country: 'India',
+  country: 'IN',
   label: 'Home',
   isDefault: false,
 })
@@ -42,6 +58,7 @@ export function AccountPage() {
   const [addresses, setAddresses] = useState([])
   const [addrForm, setAddrForm] = useState(null)
   const [addrSaving, setAddrSaving] = useState(false)
+  const [addrError, setAddrError] = useState(null)
 
   const reload = useCallback(async () => {
     if (!user) return
@@ -255,11 +272,18 @@ export function AccountPage() {
                 <h2 className="font-display text-lg font-bold uppercase text-fog">Addresses</h2>
                 <button
                   type="button"
-                  onClick={() => setAddrForm(emptyAddr())}
+                  onClick={() => {
+                    setAddrError(null)
+                    setAddrForm({
+                      ...emptyAddr(),
+                      recipientName: name.trim(),
+                      recipientPhone: secondaryPhone.trim() || primaryPhone.trim(),
+                    })
+                  }}
                   className="inline-flex items-center gap-1 rounded-xl border border-accent/40 px-3 py-2 font-sans text-xs font-semibold text-accent hover:bg-accent/10"
                 >
                   <Plus className="h-4 w-4" />
-                  Add
+                  Add address
                 </button>
               </div>
               <ul className="mt-4 space-y-3">
@@ -284,7 +308,14 @@ export function AccountPage() {
                       <button
                         type="button"
                         className="rounded-lg border border-steel/70 px-3 py-1.5 font-sans text-xs text-fog hover:border-accent/40"
-                        onClick={() => setAddrForm({ ...a })}
+                        onClick={() => {
+                          setAddrError(null)
+                          setAddrForm({
+                            ...a,
+                            recipientName: name.trim(),
+                            recipientPhone: secondaryPhone.trim() || primaryPhone.trim(),
+                          })
+                        }}
                       >
                         Edit
                       </button>
@@ -314,57 +345,111 @@ export function AccountPage() {
                   className="mt-6 space-y-3 rounded-xl border border-accent/30 bg-slate/30 p-4"
                   onSubmit={async (ev) => {
                     ev.preventDefault()
+                    setAddrError(null)
+                    const validationMsg = validateAddressForm(addrForm)
+                    if (validationMsg) {
+                      setAddrError(validationMsg)
+                      return
+                    }
+                    const recipientName = String(addrForm.recipientName ?? '').trim()
+                    const recipientPhone = String(addrForm.recipientPhone ?? '').trim()
+                    if (!recipientName) {
+                      setAddrError('Full name is required.')
+                      return
+                    }
+                    if (!recipientPhone) {
+                      setAddrError('Phone is required.')
+                      return
+                    }
                     setAddrSaving(true)
                     try {
-                      const body = {
-                        line1: addrForm.line1,
-                        line2: addrForm.line2 || null,
-                        city: addrForm.city,
-                        state: addrForm.state || null,
-                        pincode: addrForm.pincode,
-                        country: addrForm.country || 'India',
-                        label: addrForm.label || null,
-                        isDefault: Boolean(addrForm.isDefault),
-                      }
+                      const body = buildAddressPayload(addrForm)
                       if (addrForm.id) {
-                        const updated = await updateAddress(addrForm.id, body)
-                        setAddresses((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
+                        await updateAddress(addrForm.id, body)
                       } else {
-                        const created = await createAddress(body)
-                        setAddresses((prev) => [created, ...prev])
+                        await createAddress(body)
                       }
+                      const profilePatch = {}
+                      if (recipientName && recipientName !== name.trim()) profilePatch.name = recipientName
+                      if (recipientPhone && recipientPhone !== secondaryPhone.trim()) {
+                        profilePatch.secondaryPhone = recipientPhone
+                      }
+                      if (Object.keys(profilePatch).length > 0) {
+                        const profile = await saveProfile(profilePatch)
+                        if (typeof profile.name === 'string') setName(profile.name)
+                        if (typeof profile.secondaryPhone === 'string') setSecondaryPhone(profile.secondaryPhone)
+                      }
+                      const items = await loadAddresses()
+                      setAddresses(Array.isArray(items) ? items : [])
                       setAddrForm(null)
                     } catch (err) {
-                      setSaveMsg(getFetchErrorMessage(err))
+                      setAddrError(getAddressSaveErrorMessage(err))
                     } finally {
                       setAddrSaving(false)
                     }
                   }}
                 >
                   <p className="font-display text-sm font-bold uppercase text-fog">{addrForm.id ? 'Edit' : 'New'} address</p>
-                  {['line1', 'line2', 'city', 'state', 'pincode', 'country', 'label'].map((field) => (
-                    <div key={field}>
-                      <label className="block font-mono text-[9px] uppercase text-mist">{field}</label>
+                  <div>
+                    <label htmlFor="addr-recipient-name" className="block font-mono text-[9px] uppercase text-mist">
+                      Full name
+                    </label>
+                    <input
+                      id="addr-recipient-name"
+                      required
+                      value={addrForm.recipientName ?? ''}
+                      onChange={(e) => setAddrForm((f) => ({ ...f, recipientName: e.target.value }))}
+                      className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm text-fog outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="addr-recipient-phone" className="block font-mono text-[9px] uppercase text-mist">
+                      Phone
+                    </label>
+                    <input
+                      id="addr-recipient-phone"
+                      required
+                      value={addrForm.recipientPhone ?? ''}
+                      onChange={(e) => setAddrForm((f) => ({ ...f, recipientPhone: e.target.value }))}
+                      className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm text-fog outline-none focus:border-accent"
+                    />
+                  </div>
+                  {ADDR_FIELDS.map(({ key, label, required }) => (
+                    <div key={key}>
+                      <label htmlFor={`addr-${key}`} className="block font-mono text-[9px] uppercase text-mist">
+                        {label}
+                      </label>
                       <input
-                        value={addrForm[field] ?? ''}
-                        onChange={(e) => setAddrForm((f) => ({ ...f, [field]: e.target.value }))}
-                        className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm text-fog"
+                        id={`addr-${key}`}
+                        required={required}
+                        value={addrForm[key] ?? ''}
+                        onChange={(e) => setAddrForm((f) => ({ ...f, [key]: e.target.value }))}
+                        className="mt-0.5 w-full rounded-lg border border-steel/70 bg-ink px-2 py-2 text-sm text-fog outline-none focus:border-accent"
                       />
                     </div>
                   ))}
                   <label className="flex items-center gap-2 font-sans text-sm text-fog">
                     <input
                       type="checkbox"
+                      className="accent-accent"
                       checked={Boolean(addrForm.isDefault)}
                       onChange={(e) => setAddrForm((f) => ({ ...f, isDefault: e.target.checked }))}
                     />
                     Default address
                   </label>
+                  {addrError ? <p className="font-sans text-sm text-flare">{addrError}</p> : null}
                   <div className="flex gap-2 pt-2">
                     <Button type="submit" variant="primary" disabled={addrSaving}>
                       {addrSaving ? 'Saving…' : 'Save address'}
                     </Button>
-                    <Button type="button" variant="ghost" onClick={() => setAddrForm(null)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setAddrForm(null)
+                        setAddrError(null)
+                      }}
+                    >
                       Cancel
                     </Button>
                   </div>

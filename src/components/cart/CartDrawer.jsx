@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useNavigate } from 'react-router-dom'
 import { Minus, Plus, ShoppingBag, Trash2, X } from 'lucide-react'
-import { formatInr, getPartImage } from '../../data/partsCatalog'
+import { formatInr } from '../../data/partsCatalog'
+import { partDisplayImage } from '../../lib/productImage.js'
 import { useCart } from '../../context/useCart'
 import { useAuth } from '../../context/useAuth'
 import { SafeImg } from '../ui/SafeImg'
@@ -101,9 +102,7 @@ export function CartDrawer() {
               {lineItems.length > 0 ? (
                 <ul className="space-y-4">
                   {lineItems.map(({ part, qty, lineTotal }) => {
-                    const img = part.imageUrl
-                      ? { src: part.imageUrl, alt: part.name }
-                      : getPartImage(part.imageKey)
+                    const img = partDisplayImage(part)
                     return (
                       <li
                         key={part.id}

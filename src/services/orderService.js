@@ -25,3 +25,10 @@ export async function getOrder(id) {
   const { data } = await orderApi.getOrderById(id)
   return data.order
 }
+
+/** Live delivery OTP snapshot for order owner. */
+export async function getDeliveryOtp(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await orderApi.getDeliveryOtp(orderId)
+  return data
+}

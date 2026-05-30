@@ -68,3 +68,25 @@ export function getAddressSaveErrorMessage(err, fallback) {
   if (isAddressConflictError(err)) return ADDRESS_EXISTS_MESSAGE
   return getFetchErrorMessage(err, fallback)
 }
+
+/** @param {Record<string, unknown>} form */
+export function buildAddressPayload(form) {
+  return {
+    line1: String(form.line1 ?? '').trim(),
+    line2: String(form.line2 ?? '').trim() || null,
+    city: String(form.city ?? '').trim(),
+    state: String(form.state ?? '').trim() || null,
+    pincode: String(form.pincode ?? '').trim(),
+    country: normalizeCountryCode(form.country),
+    label: String(form.label ?? '').trim() || null,
+    isDefault: Boolean(form.isDefault),
+  }
+}
+
+/** @param {Record<string, unknown>} form */
+export function validateAddressForm(form) {
+  if (!String(form.line1 ?? '').trim()) return 'Address line 1 is required.'
+  if (!String(form.city ?? '').trim()) return 'City is required.'
+  if (!String(form.pincode ?? '').trim()) return 'Pincode is required.'
+  return null
+}

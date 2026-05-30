@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { OrderViewDetailsLink } from '../components/AdminOrderDetailsPanels.jsx'
+import { DeliveryOrderActions } from '../components/DeliveryOrderActions.jsx'
+import { deliveryStageLabel } from '../../lib/deliveryStage.js'
 import {
   Package,
   RefreshCw,
@@ -25,6 +27,16 @@ import {
 } from '../../lib/orderStatus.js'
 import { resolveApiAssetUrl } from '../../lib/resolveApiAssetUrl.js'
 import { useAuth } from '../../context/useAuth.js'
+import {
+  employeeAvailabilityShortLabel,
+  isEmployeeOnlineForAssignment,
+} from '../../lib/employeeAvailability.js'
+import {
+  assigneeDisplayLabel,
+  assigneeLabel,
+  assigneeLabelForExport,
+  isOrderDeliveryAssignmentLocked,
+} from '../../lib/deliveryAssignment.js'
 
 const STATUSES = ORDER_STATUSES
 
@@ -80,14 +92,6 @@ const DATE_RANGE_OPTIONS = [
 
 const ROW_SELECT_CLASS =
   'h-8 w-full max-w-full min-w-0 truncate rounded-md border border-[#d5d9d9] bg-white px-2 text-[11px] text-[#0f1111] outline-none focus:border-[#007185] focus:ring-1 focus:ring-[#007185]/30 dark:border-steel/60 dark:bg-slate dark:text-fog'
-
-function deliveryAvailabilityUiLabel(raw) {
-  const s = String(raw ?? '').trim().toLowerCase()
-  if (s === 'online' || s === 'free') return 'ONLINE'
-  if (s === 'busy') return 'BUSY'
-  if (s === 'offline') return 'OFFLINE'
-  return s ? s.toUpperCase() : 'OFFLINE'
-}
 
 function formatInr(n) {
   if (n == null) return '—'
@@ -242,11 +246,20 @@ function OrderStatusBadge({ status }) {
   return <span className={`${STATUS_BADGE_PILL} ${orderStatusBadgeClass(status)}`}>{label}</span>
 }
 
-function assigneeLabel(order, employeeByEmail) {
-  const email = String(order?.assignedDeliveryAdminEmail ?? '').trim()
-  if (!email) return 'Unassigned'
-  const emp = employeeByEmail.get(email.toLowerCase())
-  return emp?.name?.trim() || email
+function DeliveredAssigneeReadonly({ order, employeeByEmail }) {
+  const name = assigneeLabel(order, employeeByEmail)
+  if (name === 'Unassigned') {
+    return <span className="text-[12px] italic text-[#565959] dark:text-mist">Unassigned</span>
+  }
+  return (
+    <span
+      className="text-[13px] leading-snug text-[#0f1111] dark:text-fog"
+      title="Delivery partner cannot be changed after delivery"
+    >
+      {name}
+      <span className="font-semibold text-emerald-700 dark:text-emerald-400"> — Delivered</span>
+    </span>
+  )
 }
 
 function AssignedDeliveryCell({
@@ -259,6 +272,7 @@ function AssignedDeliveryCell({
   onAssign,
 }) {
   const label = assigneeLabel(order, employeeByEmail)
+  const assignmentLocked = isOrderDeliveryAssignmentLocked(order)
 
   if (!isSuperAdmin) {
     return (
@@ -269,7 +283,7 @@ function AssignedDeliveryCell({
             : 'text-[13px] italic text-[#565959] dark:text-mist'
         }
       >
-        {label}
+        {assignmentLocked ? assigneeDisplayLabel(order, employeeByEmail) : label}
       </span>
     )
   }
@@ -278,13 +292,16 @@ function AssignedDeliveryCell({
     return <span className="inline-block min-h-8 w-full text-[12px] text-[#565959] dark:text-mist"> </span>
   }
 
-  const anyOnline = deliveryEmployees.some(
-    (d) => String(d?.availability || '').toLowerCase() === 'online',
+  if (assignmentLocked) {
+    return <DeliveredAssigneeReadonly order={order} employeeByEmail={employeeByEmail} />
+  }
+
+  const anyOnline = deliveryEmployees.some((d) => isEmployeeOnlineForAssignment(d?.availability))
+  const options = deliveryEmployees.filter(
+    (d) =>
+      isEmployeeOnlineForAssignment(d?.availability) ||
+      d.email === order.assignedDeliveryAdminEmail,
   )
-  const options = deliveryEmployees.filter((d) => {
-    const availability = String(d?.availability || '').toLowerCase()
-    return availability === 'online' || d.email === order.assignedDeliveryAdminEmail
-  })
 
   if (!anyOnline && !order.assignedDeliveryAdminEmail) {
     return (
@@ -305,7 +322,7 @@ function AssignedDeliveryCell({
       <option value="">Unassigned</option>
       {options.map((d) => (
         <option key={d.email} value={d.email}>
-          {(d.name || d.email) + ` (${deliveryAvailabilityUiLabel(d.availability)})`}
+          {(d.name || d.email) + ` (${employeeAvailabilityShortLabel(d.availability)})`}
         </option>
       ))}
     </select>
@@ -319,7 +336,17 @@ function lineItemCount(order) {
 
 function OrderStatusCell({ order, isDelivery, busyId, onChangeStatus }) {
   if (isDelivery) {
-    return <OrderStatusBadge status={order.status} />
+    return (
+      <div className="space-y-1">
+        <OrderStatusBadge status={order.status} />
+        <p className="text-[10px] capitalize text-[#565959] dark:text-mist">
+          {deliveryStageLabel(order.deliveryStage)}
+        </p>
+        {order.paymentStatus ? (
+          <p className="text-[10px] text-[#565959] dark:text-mist">Pay: {order.paymentStatus}</p>
+        ) : null}
+      </div>
+    )
   }
   return (
     <select
@@ -375,22 +402,23 @@ function OrdersEmptyState({ title, description }) {
 const ACTION_BTN_CLASS =
   'whitespace-nowrap rounded border border-[#d5d9d9] bg-white px-2 py-1 text-[11px] font-normal text-[#0f1111] shadow-[0_1px_2px_rgba(15,17,17,0.08)] hover:bg-[#f7fafa] dark:border-steel/60 dark:bg-slate dark:text-fog dark:hover:bg-steel/30'
 
-function OrderActionsCell({ order, isDelivery, busyId, onMarkDelivered }) {
-  const canMarkDelivered = isDelivery && normalizeOrderStatus(order.status) === 'shipped'
+function OrderActionsCell({ order, isDelivery, busyId, onBusy, onOrderUpdated, onActionError }) {
+  if (isDelivery) {
+    return (
+      <DeliveryOrderActions
+        order={order}
+        busyId={busyId}
+        onBusy={onBusy}
+        onUpdated={onOrderUpdated}
+        onError={onActionError}
+        compact
+      />
+    )
+  }
 
   return (
     <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
       <OrderViewDetailsLink orderId={order.id} />
-      {canMarkDelivered ? (
-        <button
-          type="button"
-          disabled={busyId === order.id}
-          onClick={() => onMarkDelivered(order)}
-          className={`${ACTION_BTN_CLASS} font-medium text-[#007185] disabled:opacity-50`}
-        >
-          {busyId === order.id ? 'Updating…' : 'Mark delivered'}
-        </button>
-      ) : null}
     </div>
   )
 }
@@ -654,36 +682,23 @@ export function AdminOrdersPage() {
     }
   }
 
-  async function markDelivered(order) {
-    setBusyId(order.id)
-    try {
-      const updated = await adminService.patchOrderStatus(order.id, 'delivered')
-      if (updated) {
-        setItems((prev) => prev.map((item) => (item.id === order.id ? { ...item, ...updated } : item)))
-      } else {
-        await load()
-      }
-      window.dispatchEvent(new Event('carnalysys:delivery-stats-refresh'))
-    } catch (e) {
-      setError(getFetchErrorMessage(e))
-    } finally {
-      setBusyId(null)
-    }
+  function mergeOrderUpdate(updated) {
+    if (!updated?.id) return
+    setItems((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)))
+    setSummaryOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)))
   }
 
   async function assign(orderId, deliveryAdminEmail) {
+    const target = items.find((o) => o.id === orderId)
+    if (target && isOrderDeliveryAssignmentLocked(target)) return
     try {
       await adminService.assignDelivery(orderId, deliveryAdminEmail)
-      setItems((prev) =>
-        prev.map((o) =>
-          o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail || null } : o,
-        ),
-      )
-      setSummaryOrders((prev) =>
-        prev.map((o) =>
-          o.id === orderId ? { ...o, assignedDeliveryAdminEmail: deliveryAdminEmail || null } : o,
-        ),
-      )
+      const patch = {
+        assignedDeliveryAdminEmail: deliveryAdminEmail || null,
+        deliveryStage: deliveryAdminEmail ? 'assigned' : null,
+      }
+      setItems((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)))
+      setSummaryOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)))
       if (deliveryAdminEmail) {
         setDeliveryEmployees((prev) =>
           prev.map((employee) =>
@@ -725,6 +740,10 @@ export function AdminOrdersPage() {
       description: 'No orders match the selected filters.',
     }
   }, [items.length, activeFilterCount, isDelivery, hasPhoneSearch, hasUserSearch])
+
+  if (isDelivery) {
+    return <Navigate to="/admin/deliveries" replace />
+  }
 
   return (
     <div className={canvasClass}>
@@ -1065,7 +1084,9 @@ export function AdminOrdersPage() {
                               order={o}
                               isDelivery={isDelivery}
                               busyId={busyId}
-                              onMarkDelivered={markDelivered}
+                              onBusy={setBusyId}
+                              onOrderUpdated={mergeOrderUpdate}
+                              onActionError={setError}
                             />
                           </td>
                         </tr>

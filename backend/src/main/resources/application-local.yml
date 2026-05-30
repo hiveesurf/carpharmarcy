@@ -16,6 +16,8 @@ carnalysys:
     logs-dir: ${CARNALYSYS_STORAGE_LOGS_DIR:${user.dir}/data/carpharmacy/logs}
 
 app:
+  delivery:
+    demo-otp-enabled: true
   jwt:
     secret: ${APP_JWT_SECRET:dev-change-me-use-at-least-256-bits-for-production-secrets-please}
   cors:

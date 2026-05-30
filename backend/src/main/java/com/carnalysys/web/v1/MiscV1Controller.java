@@ -49,13 +49,21 @@ public class MiscV1Controller {
   }
 
   @GetMapping("/vehicle/years")
-  public ApiEnvelope<Map<String, Object>> years(HttpServletRequest req) {
-    return ApiResponses.ok(req, Map.of("items", legacyVehicleService.years()));
+  public ApiEnvelope<Map<String, Object>> years(
+      HttpServletRequest req,
+      @RequestParam(required = false) String brandId,
+      @RequestParam(required = false) String modelId) {
+    return ApiResponses.ok(req, Map.of("items", legacyVehicleService.years(brandId, modelId)));
   }
 
   @GetMapping("/vehicle/variants")
-  public ApiEnvelope<Map<String, Object>> variants(HttpServletRequest req) {
-    return ApiResponses.ok(req, Map.of("items", legacyVehicleService.variants()));
+  public ApiEnvelope<Map<String, Object>> variants(
+      HttpServletRequest req,
+      @RequestParam(required = false) String brandId,
+      @RequestParam(required = false) String modelId,
+      @RequestParam(required = false) String year) {
+    return ApiResponses.ok(
+        req, Map.of("items", legacyVehicleService.variants(brandId, modelId, year)));
   }
 
   @PostMapping("/search/vehicle")

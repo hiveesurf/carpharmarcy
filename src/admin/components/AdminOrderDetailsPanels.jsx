@@ -1,4 +1,11 @@
 import { Link } from 'react-router-dom'
+import { AuthenticatedApiImage } from './AuthenticatedApiImage.jsx'
+import {
+  assigneeDisplayLabel,
+  assigneeLabel,
+  isOrderDeliveryAssignmentLocked,
+} from '../../lib/deliveryAssignment.js'
+import { deliveryStageLabel, deliveryTimelineSteps } from '../../lib/deliveryStage.js'
 import { normalizeOrderStatus } from '../../lib/orderStatus.js'
 
 export function formatInr(n) {
@@ -86,11 +93,36 @@ export function OrderStatusBadge({ status }) {
   return <span className={`${STATUS_BADGE_PILL} ${orderStatusBadgeClass(status)}`}>{label}</span>
 }
 
-export function assigneeLabel(order, employeeByEmail) {
-  const email = String(order?.assignedDeliveryAdminEmail ?? '').trim()
-  if (!email) return 'Unassigned'
-  const emp = employeeByEmail.get(email.toLowerCase())
-  return emp?.name?.trim() || email
+export function DeliveryTimeline({ order }) {
+  const steps = deliveryTimelineSteps(order)
+  const failed = String(order?.deliveryStage ?? '').toLowerCase() === 'delivery_failed'
+
+  return (
+    <ol className="space-y-2 text-xs">
+      {steps.map((step) => {
+        const done = Boolean(step.at)
+        const isFailStep = failed && step.key === 'delivered'
+        return (
+          <li key={step.key} className="flex gap-2">
+            <span
+              className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
+                isFailStep ? 'bg-red-500' : done ? 'bg-emerald-500' : 'bg-[#d5d9d9]'
+              }`}
+              aria-hidden
+            />
+            <span>
+              <span className="font-semibold text-[#0f1111] dark:text-fog">{step.label}</span>
+              {step.at ? (
+                <span className="ml-2 font-mono text-[10px] text-[#565959] dark:text-mist">
+                  {formatDateTime(step.at)}
+                </span>
+              ) : null}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 export function lineItemCount(order) {
@@ -158,7 +190,10 @@ export function OrderTotalsSummary({ order, isDelivery }) {
 export function OrderDetailsMeta({ order, isDelivery, employeeByEmail }) {
   const addressLines = formatShippingAddressLines(order.shippingAddress)
   const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : []
-  const assignee = assigneeLabel(order, employeeByEmail)
+  const deliveryLocked = isOrderDeliveryAssignmentLocked(order)
+  const assignee = deliveryLocked
+    ? assigneeDisplayLabel(order, employeeByEmail)
+    : assigneeLabel(order, employeeByEmail)
   const customerProfilePath = order.userId
     ? `/admin/users/${encodeURIComponent(String(order.userId))}`
     : null
@@ -223,15 +258,69 @@ export function OrderDetailsMeta({ order, isDelivery, employeeByEmail }) {
           <DetailField label="Order status">
             <OrderStatusBadge status={order.status} />
           </DetailField>
-          <DetailField label="Assigned to">{assignee}</DetailField>
+          <DetailField label="Delivery stage">{deliveryStageLabel(order.deliveryStage)}</DetailField>
+          <DetailField label={deliveryLocked ? 'Delivered by' : 'Assigned to'}>{assignee}</DetailField>
+          {isDelivery ? (
+            <>
+              <DetailField label="Payment status">{displayValue(order.paymentStatus)}</DetailField>
+              <DetailField label="Payment method">
+                {displayValue(formatPaymentLabel(order.paymentMethod) ?? order.paymentMethod)}
+              </DetailField>
+            </>
+          ) : null}
           <DetailField label="Created">{formatDateTime(order.createdAt)}</DetailField>
           <DetailField label="Assigned at">
             {order.assignedDeliveryAt ? formatDateTime(order.assignedDeliveryAt) : 'Not available'}
           </DetailField>
-          <DetailField label="Delivered at">
-            {order.deliveredAt ? formatDateTime(order.deliveredAt) : 'Not available'}
+          <DetailField label="OTP verified at">
+            {order.deliveryOtpVerifiedAt
+              ? formatDateTime(order.deliveryOtpVerifiedAt)
+              : 'Not available'}
           </DetailField>
+          <DetailField label="Delivered at">
+            {order.deliveryDeliveredAt
+              ? formatDateTime(order.deliveryDeliveredAt)
+              : order.deliveredAt
+                ? formatDateTime(order.deliveredAt)
+                : 'Not available'}
+          </DetailField>
+          {order.deliveryFailedReason ? (
+            <DetailField label="Failure reason">
+              {order.deliveryFailedReasonLabel || order.deliveryFailedReason}
+              {order.deliveryFailedReasonNote ? ` — ${order.deliveryFailedReasonNote}` : ''}
+            </DetailField>
+          ) : null}
         </div>
+        {order.deliveryPartner ? (
+          <div className="space-y-2 rounded-md border border-[#e7e7e7] bg-white px-3 py-2.5 dark:border-steel/50 dark:bg-slate">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist">
+              Delivery partner
+            </p>
+            <DetailField label="Name">{displayValue(order.deliveryPartner.name)}</DetailField>
+            <DetailField label="Phone">{displayValue(order.deliveryPartner.phone)}</DetailField>
+            <DetailField label="Email">{displayValue(order.deliveryPartner.email)}</DetailField>
+          </div>
+        ) : null}
+        {order.assignedDeliveryAdminEmail || order.deliveryStage ? (
+          <div className="space-y-2 rounded-md border border-[#e7e7e7] bg-white px-3 py-2.5 sm:col-span-2 dark:border-steel/50 dark:bg-slate">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist">
+              Delivery timeline
+            </p>
+            <DeliveryTimeline order={order} />
+            {order.proofPhotoUrl ? (
+              <div className="mt-3">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist">
+                  Proof of delivery
+                </p>
+                <AuthenticatedApiImage
+                  path={order.proofPhotoUrl}
+                  alt="Proof of delivery"
+                  className="max-h-48 rounded border border-[#e7e7e7] object-contain dark:border-steel/50"
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {statusHistory.length > 0 ? (
           <div className="space-y-2 rounded-md border border-[#e7e7e7] bg-white px-3 py-2.5 sm:col-span-2 lg:col-span-3 dark:border-steel/50 dark:bg-slate">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#565959] dark:text-mist">

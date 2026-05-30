@@ -1,0 +1,43 @@
+{
+  "overall": "PASS",
+  "primaryOrderId": "ord_573a64b0-f7c4-4a29-a102-de95c57d6f48",
+  "secondaryOrderId": "ord_776b5dde-e5d7-4bda-aac4-e8823df15616",
+  "customerUserId": "e93f45dd-670e-488a-89f6-5bd190aae4c3",
+  "customerPhone": "9004027637",
+  "deliveryPartnerEmail": "emp_7598521713@carnalysys.local",
+  "deliveryPartnerPhone": "7598521713",
+  "beforeVerify": {
+    "deliveryStage": "otp_pending",
+    "otpPending": true,
+    "deliveryOtp": "123456",
+    "deliveryOtpVerified": false,
+    "otpExpired": false,
+    "otpExpiresAt": "2026-05-30T09:10:46.943769Z",
+    "deliveryOtpEndpoint": {
+      "deliveryStage": "otp_pending",
+      "otpPending": true,
+      "otpExpired": false,
+      "deliveryOtp": "123456",
+      "otpExpiresAt": "2026-05-30T09:10:46.943769Z"
+    },
+    "dbTtlSeconds": 900
+  },
+  "afterVerify": {
+    "deliveryStage": "otp_pending",
+    "otpPending": false,
+    "deliveryOtp": null,
+    "deliveryOtpVerified": true,
+    "deliveryOtpEndpoint": {
+      "deliveryStage": "otp_pending",
+      "otpPending": false,
+      "deliveryOtp": null
+    }
+  },
+  "partnerAdminOrderOtpLeaked": false,
+  "wrongOtpRejected": "OTP_INVALID",
+  "visualCaptures": [
+    "scripts/e2e-screenshots/ord_573a64b0-before-verify.html",
+    "scripts/e2e-screenshots/ord_573a64b0-after-verify.html"
+  ],
+  "uiNote": "Playwright not installed in environment; HTML captures mirror CustomerDeliveryOtpBlock. Live UI: open http://localhost:5199/orders as 9004027637, expand order row."
+}

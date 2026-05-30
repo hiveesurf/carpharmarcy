@@ -12,10 +12,11 @@ import { createAddress, loadAddresses } from '../services/userService.js'
 import { PAYMENT_OPTIONS, placeOrderWithPayment } from '../lib/checkoutFlow.js'
 import { formatAddressBlock, formatAddressOneLine } from '../lib/formatAddress.js'
 import {
+  buildAddressPayload,
   findMatchingAddress,
   getAddressSaveErrorMessage,
   isAddressConflictError,
-  normalizeCountryCode,
+  validateAddressForm,
 } from '../lib/addressHelpers.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
 
@@ -257,20 +258,13 @@ export function CheckoutPage() {
 
   async function saveNewAddress(e) {
     e.preventDefault()
-    if (!addrForm.line1.trim() || !addrForm.city.trim() || !addrForm.pincode.trim()) {
-      setStepError('Line 1, city, and pincode are required.')
+    const validationMsg = validateAddressForm(addrForm)
+    if (validationMsg) {
+      setStepError(validationMsg)
       return
     }
 
-    const draft = {
-      line1: addrForm.line1.trim(),
-      line2: addrForm.line2?.trim() || null,
-      city: addrForm.city.trim(),
-      state: addrForm.state?.trim() || null,
-      pincode: addrForm.pincode.trim(),
-      country: normalizeCountryCode(addrForm.country),
-      label: addrForm.label?.trim() || null,
-    }
+    const draft = buildAddressPayload(addrForm)
 
     const existing = findMatchingAddress(addresses, draft)
     if (existing) {
@@ -284,10 +278,7 @@ export function CheckoutPage() {
     setAddrSaving(true)
     setStepError(null)
     try {
-      const created = await createAddress({
-        ...draft,
-        isDefault: Boolean(addrForm.isDefault),
-      })
+      const created = await createAddress(draft)
       setAddresses((prev) => [created, ...prev.filter((a) => String(a.id) !== String(created.id))])
       selectExistingAddress(created)
     } catch (err) {

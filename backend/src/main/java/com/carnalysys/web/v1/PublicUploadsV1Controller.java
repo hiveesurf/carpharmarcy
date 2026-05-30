@@ -30,4 +30,5 @@ public class PublicUploadsV1Controller {
         .header(HttpHeaders.CONTENT_TYPE, mediaType)
         .body(body);
   }
+
 }

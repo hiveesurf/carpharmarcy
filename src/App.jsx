@@ -15,6 +15,11 @@ import { AdminAddProductPage } from './admin/pages/AdminAddProductPage.jsx'
 import { AdminAddCarPage } from './admin/pages/AdminAddCarPage.jsx'
 import { AdminUserProfilePage } from './admin/pages/AdminUserProfilePage.jsx'
 import { AdminEmployeeProfilePage } from './admin/pages/AdminEmployeeProfilePage.jsx'
+import { DeliveryPartnerOrdersPage } from './admin/pages/DeliveryPartnerOrdersPage.jsx'
+import { DeliveryDetailsPage } from './admin/pages/delivery/DeliveryDetailsPage.jsx'
+import { DeliveryOtpPage } from './admin/pages/delivery/DeliveryOtpPage.jsx'
+import { DeliveryProofPage } from './admin/pages/delivery/DeliveryProofPage.jsx'
+import { DeliverySuccessPage } from './admin/pages/delivery/DeliverySuccessPage.jsx'
 import { markHeroUserLeftHome } from './lib/heroSession'
 import { Navbar } from './components/layout/Navbar'
 import { AdminAppShell } from './components/layout/AdminAppShell.jsx'
@@ -25,6 +30,7 @@ import { AuthModals } from './components/auth/AuthModals'
 import { HomePage } from './pages/HomePage'
 import { CarsListPage } from './pages/CarsListPage'
 import { PartsCatalogPage } from './pages/PartsCatalogPage'
+import { PartsProductDetailPage } from './pages/PartsProductDetailPage.jsx'
 import { AccountPage } from './pages/AccountPage'
 import { OrdersPage } from './pages/OrdersPage.jsx'
 import { CartPage } from './pages/CartPage.jsx'
@@ -33,17 +39,19 @@ import { OrderConfirmationPage } from './pages/OrderConfirmationPage.jsx'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { PolicyDocumentPage } from './pages/PolicyDocumentPage'
 
-function ScrollToHash() {
+function ScrollOnRouteChange() {
   const { pathname, hash } = useLocation()
 
   useLayoutEffect(() => {
-    if (!hash || hash === '#') return
-    const id = decodeURIComponent(hash.slice(1))
-    if (!id) return
-    const t = window.setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 0)
-    return () => clearTimeout(t)
+    if (hash && hash !== '#') {
+      const id = decodeURIComponent(hash.slice(1))
+      if (!id) return
+      const t = window.setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 0)
+      return () => clearTimeout(t)
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' })
   }, [pathname, hash])
 
   return null
@@ -54,7 +62,7 @@ function AppShell({ children }) {
     <div className="relative min-h-svh bg-ink text-fog antialiased [--nav-h:4.25rem] md:[--nav-h:4.75rem]">
       <Noise />
       <Navbar />
-      <ScrollToHash />
+      <ScrollOnRouteChange />
       <main className="relative z-[1]">{children}</main>
       <Footer />
       <CartDrawer />
@@ -94,6 +102,14 @@ export default function App() {
       <SyncHeroReturnSession />
     <Routes>
       <Route path="/catalog" element={<AppShell><PartsCatalogPage /></AppShell>} />
+      <Route
+        path="/catalog/products/:productId"
+        element={
+          <AppShell>
+            <PartsProductDetailPage />
+          </AppShell>
+        }
+      />
       <Route path="/cart" element={<AppShell><CartPage /></AppShell>} />
       <Route path="/checkout" element={<AppShell><CheckoutPage /></AppShell>} />
       <Route path="/orders/confirmation/:id" element={<AppShell><OrderConfirmationPage /></AppShell>} />
@@ -123,6 +139,11 @@ export default function App() {
         <Route path="cars/add" element={<AdminAddCarPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="orders/:orderId" element={<AdminOrderDetailsPage />} />
+        <Route path="deliveries" element={<DeliveryPartnerOrdersPage />} />
+        <Route path="deliveries/:orderId" element={<DeliveryDetailsPage />} />
+        <Route path="deliveries/:orderId/otp" element={<DeliveryOtpPage />} />
+        <Route path="deliveries/:orderId/proof" element={<DeliveryProofPage />} />
+        <Route path="deliveries/:orderId/success" element={<DeliverySuccessPage />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="users/:id" element={<AdminUserProfilePage />} />

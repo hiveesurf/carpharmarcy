@@ -37,6 +37,48 @@ public class WhatsappService {
     return bool("WHATSAPP_ENABLED", false) && hasText(env("TWILIO_ACCOUNT_SID")) && hasText(env("TWILIO_AUTH_TOKEN"));
   }
 
+  /**
+   * Sends delivery OTP to the customer (transient — not stored in orders table). Best-effort: logs and
+   * returns false on failure.
+   */
+  public boolean sendDeliveryOtpBestEffort(String phoneDigits, String orderId, String otp) {
+    if (!isEnabled()) {
+      log.info("WhatsApp delivery OTP skipped: WHATSAPP_ENABLED=false or Twilio credentials missing");
+      return false;
+    }
+    if (!hasText(phoneDigits) || !hasText(orderId) || !hasText(otp)) {
+      return false;
+    }
+    String body = deliveryOtpMessage(orderId, otp);
+    try {
+      String templateSid = trim(env("TWILIO_WHATSAPP_TEMPLATE_DELIVERY_OTP_SID"));
+      String to = normalizeTo(phoneDigits);
+      if (hasText(templateSid)) {
+        sendTemplate(
+            to,
+            fromNumber(),
+            templateSid,
+            jsonOf(
+                Map.of(
+                    "1", orderId.trim(),
+                    "2", otp.trim(),
+                    "order_id", orderId.trim(),
+                    "otp", otp.trim())));
+      } else {
+        sendText(to, fromNumber(), body);
+      }
+      log.info("WhatsApp delivery OTP sent: orderId={}, phone={}", orderId, phoneDigits);
+      return true;
+    } catch (RuntimeException ex) {
+      log.error(
+          "WhatsApp delivery OTP send failed (ignored): orderId={}, phone={}",
+          orderId,
+          phoneDigits,
+          ex);
+      return false;
+    }
+  }
+
   public void sendOtp(String phoneDigits, String otp) {
     if (!isEnabled()) return;
     if (!hasText(phoneDigits) || !hasText(otp)) return;
@@ -232,6 +274,13 @@ public class WhatsappService {
       case cancelled -> trim(env("TWILIO_WHATSAPP_TEMPLATE_CANCELLED_SID"));
       default -> "";
     };
+  }
+
+  static String deliveryOtpMessage(String orderId, String otp) {
+    return String.format(
+        "Your Carpharmarcy delivery OTP for order %s is %s. Share it only with the delivery partner when receiving your order.",
+        orderId != null ? orderId.trim() : "",
+        otp != null ? otp.trim() : "");
   }
 
   private static String orderStatusMessage(String orderId, OrderStatus status, String orderLink) {

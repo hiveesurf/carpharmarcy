@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronDown, Heart, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   PARTS_CATALOG,
   PART_CATEGORY_OPTIONS,
   formatInr,
-  getPartImage,
 } from '../data/partsCatalog'
+import { partDisplayImage } from '../lib/productImage.js'
 import { useCart } from '../context/useCart'
 import { useAuth } from '../context/useAuth'
 import { SafeImg } from '../components/ui/SafeImg'
@@ -17,32 +17,52 @@ import { apiV1Base } from '../api/client.js'
 import { fetchProducts } from '../services/productService.js'
 import { loadWishlist, toggleWishlistProduct } from '../services/wishlistService.js'
 import { mapApiProductToPart } from '../lib/mapApiProduct.js'
+import { partMatchesBrand } from '../lib/partBrand.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
 import { ApiSectionError } from '../components/ui/ApiSectionError'
 import { fetchVehicleBrands, fetchVehicleModels, fetchVehicleYears } from '../services/fitmentService.js'
 
-const PAGE_SIZE = 5
+const PAGE_SIZE = 24
 const SEARCH_DEBOUNCE_MS = 350
 
 export function PartsCatalogPage() {
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const catalogReturnPath = `${location.pathname}${location.search}`
   const [query, setQuery] = useState(() => searchParams.get('q') ?? '')
   const [debouncedQuery, setDebouncedQuery] = useState(() => (searchParams.get('q') ?? '').trim())
   const [selectedCarId, setSelectedCarId] = useState(() => searchParams.get('carId') ?? '')
   const [brandId, setBrandId] = useState(() => searchParams.get('brandId') ?? '')
   const [modelId, setModelId] = useState('')
-  const [year, setYear] = useState('')
+  const [year, setYear] = useState(() => searchParams.get('year') ?? '')
+  const [fuelFilter, setFuelFilter] = useState(() => searchParams.get('fuel') ?? '')
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [selectedCategories, setSelectedCategories] = useState(() => {
+    const cat = searchParams.get('category')
+    return cat ? [cat] : []
+  })
+  const [partBrand, setPartBrand] = useState(
+    () => searchParams.get('brand') ?? searchParams.get('partBrand') ?? '',
+  )
 
   useEffect(() => {
     const q = searchParams.get('q')
     const cid = searchParams.get('carId') ?? ''
     const bid = searchParams.get('brandId') ?? ''
+    const y = searchParams.get('year') ?? ''
+    const fuel = searchParams.get('fuel') ?? ''
+    const cat = searchParams.get('category') ?? ''
+    const pb = searchParams.get('brand') ?? searchParams.get('partBrand') ?? ''
     // eslint-disable-next-line react-hooks/set-state-in-effect -- route params hydrate local filters
     if (q != null) setQuery(q)
     setSelectedCarId(cid)
     setBrandId(bid)
+    setYear(y)
+    setFuelFilter(fuel)
+    if (cid) setModelId(cid)
+    setSelectedCategories(cat ? [cat] : [])
+    setPartBrand(pb)
   }, [searchParams])
 
   const useApi = Boolean(apiV1Base())
@@ -56,7 +76,6 @@ export function PartsCatalogPage() {
     return () => window.clearTimeout(t)
   }, [query, useApi])
 
-  const [selectedCategories, setSelectedCategories] = useState([])
   const { lineItems, itemCount, subtotal, openCart, cartError, cartLoading, retryCart } = useCart()
   const { user, openAuth, authHydrated } = useAuth()
 
@@ -120,7 +139,7 @@ export function PartsCatalogPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset visible count after filter change
     setVisibleCount(PAGE_SIZE)
-  }, [debouncedQuery, brandId, modelId, year, selectedCategories])
+  }, [debouncedQuery, brandId, modelId, year, fuelFilter, selectedCategories, partBrand])
 
   const buildApiParams = useCallback(
     (pageIndex) => {
@@ -134,6 +153,7 @@ export function PartsCatalogPage() {
         params.carId = selectedCarId
       }
       const searchTokens = [debouncedQuery]
+      if (fuelFilter.trim()) searchTokens.push(fuelFilter.trim())
       if (year) {
         const y = yearOptions.find((x) => String(x.id) === String(year))
         if (y?.label) searchTokens.push(String(y.label))
@@ -141,9 +161,21 @@ export function PartsCatalogPage() {
       }
       const search = searchTokens.filter(Boolean).join(' ').trim()
       if (search) params.search = search
+      if (partBrand.trim()) params.partBrand = partBrand.trim()
       return params
     },
-    [selectedCategories, modelId, brandId, selectedBrand, selectedCarId, debouncedQuery, year, yearOptions],
+    [
+      selectedCategories,
+      modelId,
+      brandId,
+      selectedBrand,
+      selectedCarId,
+      debouncedQuery,
+      year,
+      fuelFilter,
+      yearOptions,
+      partBrand,
+    ],
   )
 
   useEffect(() => {
@@ -245,19 +277,31 @@ export function PartsCatalogPage() {
 
   const filtered = useMemo(() => {
     if (useApi) {
-      if (selectedCategories.length === 0) return apiParts
-      return apiParts.filter((p) => selectedCategories.includes(p.category))
+      let rows = apiParts
+      if (selectedCategories.length > 0) {
+        rows = rows.filter((p) => selectedCategories.includes(p.category))
+      }
+      if (partBrand.trim()) {
+        rows = rows.filter((p) => partMatchesBrand(p, partBrand))
+      }
+      return rows
     }
     const q = query.trim().toLowerCase()
     const brandText = selectedBrand?.name?.toLowerCase() ?? ''
+    const oemBrand = partBrand.trim()
     const modelText = selectedModel?.name?.toLowerCase() ?? selectedModel?.fullName?.toLowerCase() ?? ''
     const yearText = yearOptions.find((y) => String(y.id) === String(year))?.label?.toLowerCase() ?? String(year || '')
     return PARTS_CATALOG.filter((p) => {
       if (selectedCategories.length > 0 && !selectedCategories.includes(p.category)) return false
+      if (oemBrand && !partMatchesBrand(p, oemBrand)) return false
       const fitmentJoined = p.compatibleCars.join(' ').toLowerCase()
       if (brandText && !fitmentJoined.includes(brandText) && !p.compatibleCars.includes('All vehicles')) return false
       if (modelText && !fitmentJoined.includes(modelText) && !p.compatibleCars.includes('All vehicles')) return false
       if (yearText && !fitmentJoined.includes(yearText) && !p.compatibleCars.includes('All vehicles')) return false
+      if (fuelFilter.trim()) {
+        const fuel = fuelFilter.trim().toLowerCase()
+        if (!fitmentJoined.includes(fuel) && !p.compatibleCars.includes('All vehicles')) return false
+      }
       if (!q) return true
       return (
         p.name.toLowerCase().includes(q) ||
@@ -266,38 +310,51 @@ export function PartsCatalogPage() {
         p.compatibleCars.some((c) => c.toLowerCase().includes(q))
       )
     })
-  }, [useApi, apiParts, query, selectedCategories, selectedBrand, selectedModel, year, yearOptions])
+  }, [useApi, apiParts, query, selectedCategories, selectedBrand, selectedModel, year, fuelFilter, yearOptions, partBrand])
 
   const pagedParts = useApi ? filtered : filtered.slice(0, visibleCount)
-  const resultCount = useApi ? apiTotal : filtered.length
+  const resultCount = useApi
+    ? selectedCategories.length > 1
+      ? filtered.length
+      : apiTotal
+    : filtered.length
   const hasMore = useApi ? apiHasMore : filtered.length > visibleCount
 
   const activeFilterChips = useMemo(() => {
     const chips = []
     selectedCategories.forEach((c) => chips.push({ key: `category:${c}`, label: c }))
-    if (selectedBrand?.name) chips.push({ key: 'brand', label: `Brand: ${selectedBrand.name}` })
+    if (selectedBrand?.name) chips.push({ key: 'vehicleBrand', label: `Vehicle: ${selectedBrand.name}` })
+    if (partBrand.trim()) chips.push({ key: 'oemBrand', label: `OEM: ${partBrand.trim()}` })
     if (selectedModel?.fullName || selectedModel?.name) chips.push({ key: 'model', label: `Model: ${selectedModel.fullName ?? selectedModel.name}` })
     if (year) {
       const y = yearOptions.find((x) => String(x.id) === String(year))
       chips.push({ key: 'year', label: `Year: ${y?.label ?? year}` })
     }
     if (debouncedQuery) chips.push({ key: 'query', label: `Search: ${debouncedQuery}` })
+    if (fuelFilter) chips.push({ key: 'fuel', label: `Fuel: ${fuelFilter}` })
     return chips
-  }, [selectedCategories, selectedBrand, selectedModel, year, yearOptions, debouncedQuery])
+  }, [selectedCategories, selectedBrand, selectedModel, year, yearOptions, debouncedQuery, fuelFilter, partBrand])
 
   const clearAllFilters = useCallback(() => {
     setSelectedCategories([])
     setBrandId('')
     setModelId('')
     setYear('')
+    setFuelFilter('')
     setQuery('')
     setDebouncedQuery('')
+    setPartBrand('')
     setSelectedCarId('')
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('brandId')
       next.delete('carId')
       next.delete('q')
+      next.delete('year')
+      next.delete('fuel')
+      next.delete('category')
+      next.delete('brand')
+      next.delete('partBrand')
       return next
     }, { replace: true })
   }, [setSearchParams])
@@ -305,9 +362,18 @@ export function PartsCatalogPage() {
   const removeChip = useCallback((chipKey) => {
     if (chipKey.startsWith('category:')) {
       const categoryName = chipKey.split(':').slice(1).join(':')
-      setSelectedCategories((prev) => prev.filter((c) => c !== categoryName))
+      setSelectedCategories((prev) => {
+        const next = prev.filter((c) => c !== categoryName)
+        setSearchParams((sp) => {
+          const params = new URLSearchParams(sp)
+          if (next.length === 1) params.set('category', next[0])
+          else params.delete('category')
+          return params
+        }, { replace: true })
+        return next
+      })
     }
-    if (chipKey === 'brand') {
+    if (chipKey === 'vehicleBrand') {
       setBrandId('')
       setModelId('')
       setYear('')
@@ -317,16 +383,46 @@ export function PartsCatalogPage() {
         return next
       }, { replace: true })
     }
+    if (chipKey === 'oemBrand') {
+      setPartBrand('')
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('brand')
+        next.delete('partBrand')
+        return next
+      }, { replace: true })
+    }
     if (chipKey === 'model') {
       setModelId('')
       setYear('')
     }
     if (chipKey === 'year') setYear('')
+    if (chipKey === 'fuel') {
+      setFuelFilter('')
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('fuel')
+        return next
+      }, { replace: true })
+    }
     if (chipKey === 'query') {
       setQuery('')
       setDebouncedQuery('')
     }
   }, [setSearchParams])
+
+  const onCategoriesChange = useCallback(
+    (cats) => {
+      setSelectedCategories(cats)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        if (cats.length === 1) next.set('category', cats[0])
+        else next.delete('category')
+        return next
+      }, { replace: true })
+    },
+    [setSearchParams],
+  )
 
   const noModelAvailable = Boolean(brandId) && modelOptions.length === 0 && !apiLoading
   const noYearAvailable = Boolean(modelId) && yearOptions.length === 0 && !apiLoading
@@ -355,7 +451,7 @@ export function PartsCatalogPage() {
             <CatalogFiltersPanel
               useApi={useApi}
               selectedCategories={selectedCategories}
-              setSelectedCategories={setSelectedCategories}
+              setSelectedCategories={onCategoriesChange}
               brandId={brandId}
               setBrandId={setBrandId}
               modelId={modelId}
@@ -468,9 +564,7 @@ export function PartsCatalogPage() {
           <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
             {!apiError &&
               pagedParts.map((part) => {
-                const img = part.imageUrl
-                  ? { src: part.imageUrl, alt: part.name }
-                  : getPartImage(part.imageKey)
+                const img = partDisplayImage(part)
                 return (
                   <CatalogPartRow
                     key={part.id}
@@ -479,6 +573,7 @@ export function PartsCatalogPage() {
                     useApi={useApi}
                     wished={wishIds.has(part.id)}
                     onWishToggle={onWishToggle}
+                    catalogReturnPath={catalogReturnPath}
                   />
                 )
               })}
@@ -544,9 +639,7 @@ export function PartsCatalogPage() {
                     className="flex gap-3 border-b border-fog/10 pb-3 text-left last:border-0 last:pb-0"
                   >
                     <SafeImg
-                      src={
-                        part.imageUrl ? part.imageUrl : getPartImage(part.imageKey).src
-                      }
+                      src={partDisplayImage(part).src}
                       alt=""
                       fw={120}
                       fh={96}
@@ -616,7 +709,7 @@ export function PartsCatalogPage() {
               onCloseMobile={() => setMobileFiltersOpen(false)}
               useApi={useApi}
               selectedCategories={selectedCategories}
-              setSelectedCategories={setSelectedCategories}
+              setSelectedCategories={onCategoriesChange}
               brandId={brandId}
               setBrandId={setBrandId}
               modelId={modelId}
@@ -764,10 +857,17 @@ function CatalogFiltersPanel({
 function CategoryMultiSelectDropdown({ options, selected, onChange }) {
   const [open, setOpen] = useState(false)
   const label = selected.length === 0 ? 'All categories' : `${selected.length} selected`
+  const selectable = options.filter((c) => c !== 'All categories')
 
   function toggle(option) {
+    if (option === 'All categories') {
+      onChange([])
+      setOpen(false)
+      return
+    }
     if (selected.includes(option)) onChange(selected.filter((x) => x !== option))
     else onChange([...selected, option])
+    setOpen(false)
   }
 
   return (
@@ -783,7 +883,18 @@ function CategoryMultiSelectDropdown({ options, selected, onChange }) {
       </button>
       {open ? (
         <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-[#d8dce3] bg-white p-2">
-          {options.map((c) => {
+          <button
+            type="button"
+            onClick={() => {
+              onChange([])
+              setOpen(false)
+            }}
+            className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-fog hover:bg-slate/60"
+          >
+            <span>All categories</span>
+            {selected.length === 0 ? <Check className="h-4 w-4 text-accent" /> : null}
+          </button>
+          {selectable.map((c) => {
             const checked = selected.includes(c)
             return (
               <button
@@ -803,42 +914,57 @@ function CategoryMultiSelectDropdown({ options, selected, onChange }) {
   )
 }
 
-function CatalogPartRow({ part, img, useApi, wished, onWishToggle }) {
+function CatalogPartRow({ part, img, useApi, wished, onWishToggle, catalogReturnPath }) {
   const { getQty } = useCart()
   const inCart = getQty(part.id)
   const left = Math.max(0, part.totalStock - inCart)
   const canAdd = left > 0
+  const detailPath = `/catalog/products/${encodeURIComponent(part.id)}`
+  const detailState = { from: catalogReturnPath }
 
   return (
     <li className="ad-store-card group overflow-hidden rounded-xl border border-steel/70 bg-ink/95 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_-16px_rgba(0,51,102,0.18)]">
       <div className="relative aspect-[4/3] overflow-hidden bg-slate">
-        <SafeImg
-          src={img.src}
-          alt={img.alt}
-          fw={800}
-          fh={600}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          width={700}
-          height={525}
-          loading="lazy"
-        />
+        <Link
+          to={detailPath}
+          state={detailState}
+          className="block h-full w-full"
+          aria-label={`View details for ${part.name}`}
+        >
+          <SafeImg
+            src={img.src}
+            alt={img.alt}
+            fw={800}
+            fh={600}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            width={700}
+            height={525}
+            loading="lazy"
+          />
+        </Link>
         {useApi ? (
           <button
             type="button"
-            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-steel/80 bg-ink/90 text-mist shadow-md backdrop-blur-sm transition-colors hover:border-accent hover:text-accent"
+            className="absolute right-3 top-3 z-[1] flex h-9 w-9 items-center justify-center rounded-full border border-steel/80 bg-ink/90 text-mist shadow-md backdrop-blur-sm transition-colors hover:border-accent hover:text-accent"
             aria-label={wished ? 'Remove from favorites' : 'Add to favorites'}
             onClick={(e) => onWishToggle(e, part.id)}
           >
             <Heart className={`h-4 w-4 ${wished ? 'fill-accent text-accent' : ''}`} strokeWidth={1.75} />
           </button>
         ) : null}
-        <span className="part-card-category-pill absolute left-3 top-3 rounded-lg px-2 py-1 font-mono text-[10px] uppercase tracking-wider">
+        <span className="part-card-category-pill pointer-events-none absolute left-3 top-3 rounded-lg px-2 py-1 font-mono text-[10px] uppercase tracking-wider">
           {part.category}
         </span>
       </div>
       <div className="flex flex-col p-4">
         <p className="font-mono text-[10px] uppercase tracking-wider text-hud">{part.sku}</p>
-        <p className="mt-1 font-display text-base font-bold uppercase leading-snug text-fog">{part.name}</p>
+        <Link
+          to={detailPath}
+          state={detailState}
+          className="mt-1 font-display text-base font-bold uppercase leading-snug text-fog transition-colors hover:text-accent"
+        >
+          {part.name}
+        </Link>
         <p className="mt-2 font-display text-xl font-black text-accent">{formatInr(part.price)}</p>
 
         <div className="mt-3 space-y-2 rounded-lg border border-steel/60 bg-slate/80 px-3 py-2">
@@ -861,10 +987,17 @@ function CatalogPartRow({ part, img, useApi, wished, onWishToggle }) {
           {part.compatibleCars.join(', ')}
         </p>
 
-        <div className="mt-4 flex items-stretch gap-2">
-          <div className="min-w-0 flex-1">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-stretch">
+          <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
             <CartQtyStepperOrAdd partId={part.id} maxStock={part.totalStock} canAdd={canAdd} />
           </div>
+          <Link
+            to={detailPath}
+            state={detailState}
+            className="inline-flex min-h-[3rem] flex-1 items-center justify-center rounded-[1.25rem] border border-accent/40 bg-accent/10 px-3 font-sans text-[11px] font-bold uppercase tracking-wide text-accent transition-colors hover:bg-accent/20 sm:text-xs"
+          >
+            View details
+          </Link>
         </div>
       </div>
     </li>

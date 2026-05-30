@@ -59,7 +59,7 @@ class CatalogServiceTest {
         .thenReturn(Map.of("id", "p1", "name", "Brake Pad"));
 
     Map<String, Object> result =
-        catalogService.listProductsPage("part", null, "brake", null, null, "price_asc", 0, 20);
+        catalogService.listProductsPage("part", null, "brake", null, null, null, "price_asc", 0, 20);
 
     assertThat(result).containsEntry("page", 0).containsEntry("pageSize", 1);
     assertThat(result).containsKey("items");
@@ -92,7 +92,7 @@ class CatalogServiceTest {
     first.setSlug("body");
     first.setName("Body");
     first.setDisplayOrder(1);
-    when(categoryRepository.findAll()).thenReturn(List.of(second, first));
+    when(categoryRepository.findAllActive()).thenReturn(List.of(second, first));
 
     List<Map<String, String>> categories = catalogService.listCategories();
 

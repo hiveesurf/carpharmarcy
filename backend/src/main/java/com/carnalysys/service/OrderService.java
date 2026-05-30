@@ -42,11 +42,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import com.carnalysys.repo.UserProfileRepository;
+import com.carnalysys.util.EmployeeAvailability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,6 +71,7 @@ public class OrderService {
   private final NotificationService notificationService;
   private final WhatsappService whatsappService;
   private final LowStockAlertService lowStockAlertService;
+  private final DeliveryWorkflowService deliveryWorkflowService;
 
   public OrderService(
       OrderRepository orderRepository,
@@ -85,7 +88,8 @@ public class OrderService {
       UploadStorageService uploadStorageService,
       NotificationService notificationService,
       WhatsappService whatsappService,
-      LowStockAlertService lowStockAlertService) {
+      LowStockAlertService lowStockAlertService,
+      @Lazy DeliveryWorkflowService deliveryWorkflowService) {
     this.orderRepository = orderRepository;
     this.orderLineRepository = orderLineRepository;
     this.addressRepository = addressRepository;
@@ -101,6 +105,7 @@ public class OrderService {
     this.notificationService = notificationService;
     this.whatsappService = whatsappService;
     this.lowStockAlertService = lowStockAlertService;
+    this.deliveryWorkflowService = deliveryWorkflowService;
   }
 
   @Transactional
@@ -225,7 +230,7 @@ public class OrderService {
 
     UUID userRef = Objects.requireNonNull(user.getId(), "order user id");
     UserProfile profile = userProfileRepository.findById(userRef).orElse(null);
-    return Map.of("order", toOrderMap(order, persisted, addressIdStr, profile, true));
+    return Map.of("order", toOrderMap(order, persisted, addressIdStr, profile, true, false));
   }
 
   @Transactional(readOnly = true)
@@ -233,7 +238,7 @@ public class OrderService {
     UUID uid = Objects.requireNonNull(userId, "userId");
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
     return orderRepository.findByUser_IdOrderByPlacedAtDesc(uid).stream()
-        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
         .toList();
   }
 
@@ -247,7 +252,7 @@ public class OrderService {
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
     List<Map<String, Object>> rows =
         pageResult.getContent().stream()
-            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
             .toList();
     return Map.of(
         "items", rows,
@@ -267,7 +272,7 @@ public class OrderService {
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
     return orderRepository.findByUser_PhoneE164OrderByPlacedAtDesc(normalized).stream()
         .filter(o -> o.getUser().getId().equals(uid))
-        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+        .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
         .toList();
   }
 
@@ -287,7 +292,7 @@ public class OrderService {
     List<Map<String, Object>> rows =
         pageResult.getContent().stream()
             .filter(o -> o.getUser().getId().equals(uid))
-            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true))
+            .map(o -> toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true))
             .toList();
     return Map.of(
         "items", rows,
@@ -307,7 +312,19 @@ public class OrderService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
     UserProfile profile = userProfileRepository.findById(uid).orElse(null);
     return Map.of(
-        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true));
+        "order", toOrderMap(o, orderLineRepository.findByOrder_Id(o.getId()), null, profile, true, true));
+  }
+
+  /** Live delivery OTP for order owner (not cached in list pagination). */
+  @Transactional(readOnly = true)
+  public Map<String, Object> getDeliveryOtpForOwner(UUID userId, String orderId) {
+    UUID uid = Objects.requireNonNull(userId, "userId");
+    OrderEntity o =
+        orderRepository
+            .findByIdAndUser_Id(orderId, uid)
+            .orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    return deliveryWorkflowService.customerDeliveryOtpView(o);
   }
 
   private Map<String, Object> toOrderMap(
@@ -315,7 +332,8 @@ public class OrderService {
       List<OrderLine> lines,
       String addressIdOverride,
       UserProfile profileOrNull,
-      boolean includeHistory) {
+      boolean includeHistory,
+      boolean includeUserDeliveryOtp) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("id", o.getId());
     UserEntity customer = o.getUser();
@@ -369,6 +387,12 @@ public class OrderService {
         o.getStatus() == OrderStatus.delivered && o.getUpdatedAt() != null
             ? o.getUpdatedAt().toString()
             : null);
+    deliveryWorkflowService.putDeliveryFields(
+        m,
+        o,
+        includeUserDeliveryOtp
+            ? DeliveryWorkflowService.DeliveryFieldsMode.USER
+            : DeliveryWorkflowService.DeliveryFieldsMode.ADMIN);
     return m;
   }
 
@@ -450,6 +474,7 @@ public class OrderService {
                     orderLineRepository.findByOrder_Id(o.getId()),
                     null,
                     profilesByUserId.get(o.getUser().getId()),
+                    false,
                     false))
         .toList();
   }
@@ -467,6 +492,7 @@ public class OrderService {
                     userProfileRepository
                         .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
                         .orElse(null),
+                    false,
                     false))
         .toList();
   }
@@ -490,6 +516,7 @@ public class OrderService {
                         userProfileRepository
                             .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
                             .orElse(null),
+                        false,
                         false))
             .toList();
     return Map.of(
@@ -506,7 +533,7 @@ public class OrderService {
         userProfileRepository
             .findById(Objects.requireNonNull(order.getUser().getId(), "order user id"))
             .orElse(null);
-    return toOrderMap(order, lines, null, profile, true);
+    return toOrderMap(order, lines, null, profile, true, false);
   }
 
   /**
@@ -524,6 +551,8 @@ public class OrderService {
     m.put("userId", customer.getId().toString());
     putCustomerFields(m, customer, profile);
     m.put("status", order.getStatus().name());
+    m.put("paymentMethod", order.getPaymentMethod() != null ? order.getPaymentMethod().name() : null);
+    m.put("paymentStatus", order.getPaymentStatus() != null ? order.getPaymentStatus().name() : null);
     List<Map<String, Object>> ls = new ArrayList<>();
     for (OrderLine ol : lines) {
       Map<String, Object> row = new LinkedHashMap<>();
@@ -552,6 +581,8 @@ public class OrderService {
     if (shipping != null) {
       m.put("shippingAddress", toAddressMap(shipping));
     }
+    deliveryWorkflowService.putDeliveryFields(
+        m, order, DeliveryWorkflowService.DeliveryFieldsMode.ADMIN);
     return m;
   }
 
@@ -654,7 +685,7 @@ public class OrderService {
         userProfileRepository
             .findById(Objects.requireNonNull(o.getUser().getId(), "order user id"))
             .orElse(null);
-    return Map.of("order", toOrderMap(o, lines, null, profile, true));
+    return Map.of("order", toOrderMap(o, lines, null, profile, true, false));
   }
 
   private static OrderStatus normalizeAdminStatus(String status) {
@@ -670,32 +701,33 @@ public class OrderService {
       OrderEntity order, OrderStatus before, OrderStatus after) {
     String deliveryEmail = order.getAssignedDeliveryAdminEmail();
     if (deliveryEmail == null || deliveryEmail.isBlank()) return;
-
-    if (before != after && after == OrderStatus.shipped) {
-      syncDeliveryAvailabilityFromAssignedOrders(deliveryEmail, order.getId());
-    }
+    if (before == after) return;
+    syncDeliveryAvailabilityFromAssignedOrders(deliveryEmail);
   }
 
-  private void syncDeliveryAvailabilityFromAssignedOrders(String deliveryEmail, String statusChangedOrderId) {
+  private void syncDeliveryAvailabilityFromAssignedOrders(String deliveryEmail) {
     var deliveryOpt = adminUserRepository.findByEmailIgnoreCase(deliveryEmail);
     if (deliveryOpt.isEmpty()) return;
     var delivery = deliveryOpt.get();
+    if (!"delivery".equalsIgnoreCase(delivery.getRole())) return;
 
-    boolean hasOtherActiveAssignedOrders =
+    String stored =
+        delivery.getAvailabilityStatus() != null
+            ? delivery.getAvailabilityStatus().trim().toLowerCase()
+            : "offline";
+    if ("offline".equals(stored)) {
+      return;
+    }
+
+    boolean hasActiveAssignedOrders =
         orderRepository.findByAssignedDeliveryAdminEmailOrderByPlacedAtDesc(deliveryEmail).stream()
-            .filter(o -> !Objects.equals(o.getId(), statusChangedOrderId))
-            .anyMatch(o -> isDeliveryActiveStatus(o.getStatus()));
+            .anyMatch(o -> EmployeeAvailability.isActiveDeliveryOrderStatus(o.getStatus()));
 
-    String target = hasOtherActiveAssignedOrders ? "busy" : "online";
-    if (!target.equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+    String target = hasActiveAssignedOrders ? "busy" : "online";
+    if (!target.equalsIgnoreCase(stored)) {
       delivery.setAvailabilityStatus(target);
       adminUserRepository.save(delivery);
     }
-  }
-
-  private static boolean isDeliveryActiveStatus(OrderStatus status) {
-    return EnumSet.of(OrderStatus.placed, OrderStatus.confirmed, OrderStatus.processing)
-        .contains(status);
   }
 
   private static PaymentMethod parsePaymentMethod(String raw) {
@@ -713,6 +745,13 @@ public class OrderService {
       return "txn_cod_" + userId.toString().substring(0, 8) + "_" + Instant.now().toEpochMilli();
     }
     return null;
+  }
+
+  public String normalizePhoneForAdminListing(String phoneE164) {
+    if (phoneE164 == null || phoneE164.isBlank()) {
+      return "";
+    }
+    return normalizePhone(phoneE164);
   }
 
   private static String normalizePhone(String phoneE164) {

@@ -4,6 +4,8 @@ import com.carnalysys.domain.Product;
 import com.carnalysys.domain.ProductFitmentCar;
 import com.carnalysys.domain.ProductFitmentLabel;
 import com.carnalysys.domain.ProductType;
+import com.carnalysys.util.PartBrandSupport;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -15,7 +17,7 @@ final class CatalogProductSpecifications {
   private CatalogProductSpecifications() {}
 
   static Specification<Product> build(
-      String type, String category, String search, String carModel, String carId) {
+      String type, String category, String search, String carModel, String carId, String partBrand) {
     Specification<Product> spec = published().and(active());
     if ("vehicle".equals(type)) {
       spec = spec.and(typeEquals(ProductType.vehicle));
@@ -24,6 +26,7 @@ final class CatalogProductSpecifications {
     }
     spec = spec.and(categoryMatches(category));
     spec = spec.and(searchMatches(search));
+    spec = spec.and(partBrandMatches(partBrand));
     spec = spec.and(carModelMatches(carModel, type));
     spec = spec.and(carIdMatches(carId, type));
     return spec;
@@ -66,8 +69,56 @@ final class CatalogProductSpecifications {
       return cb.or(
           cb.like(cb.lower(root.get("name")), q),
           cb.like(cb.lower(root.get("sku")), q),
-          cb.and(cb.isNull(c.get("deletedAt")), cb.like(cb.lower(c.get("name")), q)));
+          cb.and(cb.isNull(c.get("deletedAt")), cb.like(cb.lower(c.get("name")), q)),
+          metadataFieldLike(root, cb, "brand", q),
+          metadataFieldLike(root, cb, "oem", q),
+          metadataFieldLike(root, cb, "oes", q),
+          metadataFieldLike(root, cb, "supplierName", q));
     };
+  }
+
+  private static Specification<Product> partBrandMatches(String partBrandRaw) {
+    if (partBrandRaw == null || partBrandRaw.isBlank()) {
+      return (root, query, cb) -> cb.conjunction();
+    }
+    String key = PartBrandSupport.normalizeKey(partBrandRaw);
+    if (key.isEmpty()) {
+      return (root, query, cb) -> cb.conjunction();
+    }
+    return (root, query, cb) ->
+        cb.or(
+            metadataFieldEquals(root, cb, "brand", key),
+            metadataFieldEquals(root, cb, "oem", key),
+            metadataFieldEquals(root, cb, "oes", key),
+            metadataFieldEquals(root, cb, "supplierName", key));
+  }
+
+  private static Predicate metadataFieldLike(
+      Root<Product> root,
+      jakarta.persistence.criteria.CriteriaBuilder cb,
+      String key,
+      String pattern) {
+    Expression<String> extracted =
+        cb.function(
+            "jsonb_extract_path_text",
+            String.class,
+            root.get("metadata"),
+            cb.literal(key));
+    return cb.like(cb.lower(extracted), pattern);
+  }
+
+  private static Predicate metadataFieldEquals(
+      Root<Product> root,
+      jakarta.persistence.criteria.CriteriaBuilder cb,
+      String key,
+      String normalizedKey) {
+    Expression<String> extracted =
+        cb.function(
+            "jsonb_extract_path_text",
+            String.class,
+            root.get("metadata"),
+            cb.literal(key));
+    return cb.equal(cb.lower(extracted), normalizedKey);
   }
 
   private static Specification<Product> carModelMatches(String carRaw, String typeParam) {

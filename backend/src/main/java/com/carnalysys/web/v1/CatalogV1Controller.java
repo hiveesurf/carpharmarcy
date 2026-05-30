@@ -29,12 +29,19 @@ public class CatalogV1Controller {
       @RequestParam(required = false) String search,
       @RequestParam(required = false) String carModel,
       @RequestParam(required = false) String carId,
+      @RequestParam(required = false) String partBrand,
       @RequestParam(required = false) String sort,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "24") int pageSize) {
     return ApiResponses.ok(
         req,
-        catalogService.listProductsPage(type, category, search, carModel, carId, sort, page, pageSize));
+        catalogService.listProductsPage(
+            type, category, search, carModel, carId, partBrand, sort, page, pageSize));
+  }
+
+  @GetMapping("/part-brands")
+  public ApiEnvelope<Map<String, Object>> partBrands(HttpServletRequest req) {
+    return ApiResponses.ok(req, Map.of("items", catalogService.listPartBrands()));
   }
 
   @GetMapping("/products/{id}")

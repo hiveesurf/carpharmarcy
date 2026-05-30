@@ -91,4 +91,9 @@ public class OrderV1Controller {
   public ApiEnvelope<Map<String, Object>> one(HttpServletRequest req, @PathVariable String id) {
     return ApiResponses.ok(req, orderService.getMine(AuthSupport.requireUser(), id));
   }
+
+  @GetMapping("/{id}/delivery-otp")
+  public ApiEnvelope<Map<String, Object>> deliveryOtp(HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, orderService.getDeliveryOtpForOwner(AuthSupport.requireUser(), id));
+  }
 }

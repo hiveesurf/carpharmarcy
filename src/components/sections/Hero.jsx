@@ -39,7 +39,7 @@ function HeroBlobs() {
   )
 }
 
-function SelectField({ label, value, onChange, children, id }) {
+function SelectField({ label, value, onChange, children, id, disabled = false }) {
   return (
     <label htmlFor={id} className="block">
       <span className="sr-only">{label}</span>
@@ -47,6 +47,7 @@ function SelectField({ label, value, onChange, children, id }) {
         <select
           id={id}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           className={`w-full cursor-pointer appearance-none rounded-lg border border-[#d8dce3] bg-white py-3 pl-3 pr-10 font-sans text-sm outline-none transition-[border-color,box-shadow] focus:border-[#f15a24] focus:ring-2 focus:ring-[#f15a24]/25 ${value ? 'text-[#1a1d24]' : 'text-[#9aa0a8]'}`}
         >
@@ -75,6 +76,8 @@ export function Hero() {
   const [yearList, setYearList] = useState([])
   const [variantList, setVariantList] = useState([])
   const [fitmentLoading, setFitmentLoading] = useState(true)
+  const [yearsLoading, setYearsLoading] = useState(false)
+  const [variantsLoading, setVariantsLoading] = useState(false)
   const [liveApiError, setLiveApiError] = useState(null)
   const [heroRetryKey, setHeroRetryKey] = useState(0)
 
@@ -126,16 +129,8 @@ export function Hero() {
     ;(async () => {
       setFitmentLoading(true)
       try {
-        const [brands, years, variants] = await Promise.all([
-          fetchVehicleBrands(),
-          fetchVehicleYears(),
-          fetchVehicleVariants(),
-        ])
-        if (!cancelled) {
-          setBrandList(brands)
-          setYearList(years)
-          setVariantList(variants)
-        }
+        const brands = await fetchVehicleBrands()
+        if (!cancelled) setBrandList(Array.isArray(brands) ? brands : [])
       } finally {
         if (!cancelled) setFitmentLoading(false)
       }
@@ -149,14 +144,20 @@ export function Hero() {
     if (!brand) {
       setModelList([])
       setModel('')
+      setYearList([])
+      setYear('')
+      setVariantList([])
+      setVariant('')
       return
     }
     let cancelled = false
     ;(async () => {
       const items = await fetchVehicleModels(brand)
       if (!cancelled) {
-        setModelList(items)
+        setModelList(Array.isArray(items) ? items : [])
         setModel('')
+        setYear('')
+        setVariant('')
       }
     })()
     return () => {
@@ -164,12 +165,85 @@ export function Hero() {
     }
   }, [brand])
 
+  useEffect(() => {
+    if (!brand) {
+      setYearList([])
+      setYear('')
+      return
+    }
+    let cancelled = false
+    setYearsLoading(true)
+    ;(async () => {
+      try {
+        const items = await fetchVehicleYears({ brandId: brand, modelId: model || undefined })
+        if (!cancelled) {
+          setYearList(Array.isArray(items) ? items : [])
+          setYear('')
+        }
+      } finally {
+        if (!cancelled) setYearsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [brand, model])
+
+  useEffect(() => {
+    if (!brand) {
+      setVariantList([])
+      setVariant('')
+      return
+    }
+    let cancelled = false
+    setVariantsLoading(true)
+    ;(async () => {
+      try {
+        const items = await fetchVehicleVariants({
+          brandId: brand,
+          modelId: model || undefined,
+          year: year || undefined,
+        })
+        if (!cancelled) {
+          setVariantList(Array.isArray(items) ? items : [])
+          setVariant('')
+        }
+      } finally {
+        if (!cancelled) setVariantsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [brand, model, year])
+
   const vehicleSearch = async (e) => {
     e.preventDefault()
     markHeroUserLeftHome()
-    await submitVehicleSearch({ brandId: brand, modelId: model, year, variantId: variant })
-    navigate('/catalog')
+    const fuelLabel = variantList.find((v) => v.id === variant)?.label
+    await submitVehicleSearch({
+      brandId: brand,
+      modelId: model,
+      year,
+      variantId: variant,
+      fuel: fuelLabel || undefined,
+    })
+    const params = new URLSearchParams()
+    if (brand) params.set('brandId', brand)
+    if (model) params.set('carId', model)
+    if (year) params.set('year', year)
+    if (fuelLabel) params.set('fuel', fuelLabel)
+    const qs = params.toString()
+    navigate(qs ? `/catalog?${qs}` : '/catalog')
   }
+
+  const variantPlaceholder = !brand
+    ? 'Select brand first'
+    : variantsLoading
+      ? 'Loading variants…'
+      : variantList.length === 0
+        ? 'No variants available'
+        : 'Select Variant'
 
   return (
     <section className="relative min-h-[72dvh] overflow-hidden md:min-h-[76dvh] lg:min-h-[80dvh]">
@@ -245,7 +319,17 @@ export function Hero() {
 
             <form onSubmit={vehicleSearch} className="mt-6">
               <div className="grid grid-cols-2 gap-3">
-                <SelectField label="Car brand" id="hero-brand" value={brand} onChange={setBrand}>
+                <SelectField
+                  label="Car brand"
+                  id="hero-brand"
+                  value={brand}
+                  onChange={(value) => {
+                    setBrand(value)
+                    setModel('')
+                    setYear('')
+                    setVariant('')
+                  }}
+                >
                   <option value="" disabled hidden>
                     {fitmentLoading ? 'Loading brands…' : 'Select Car Brand'}
                   </option>
@@ -259,7 +343,11 @@ export function Hero() {
                   label="Car model"
                   id="hero-model"
                   value={model}
-                  onChange={setModel}
+                  onChange={(value) => {
+                    setModel(value)
+                    setYear('')
+                    setVariant('')
+                  }}
                 >
                   <option value="" disabled hidden>
                     {!brand ? 'Select brand first' : 'Select Car Model'}
@@ -270,9 +358,17 @@ export function Hero() {
                     </option>
                   ))}
                 </SelectField>
-                <SelectField label="Year" id="hero-year" value={year} onChange={setYear}>
+                <SelectField
+                  label="Year"
+                  id="hero-year"
+                  value={year}
+                  onChange={(value) => {
+                    setYear(value)
+                    setVariant('')
+                  }}
+                >
                   <option value="" disabled hidden>
-                    Select Year
+                    {!brand ? 'Select brand first' : yearsLoading ? 'Loading years…' : 'Select Year'}
                   </option>
                   {yearList.map((y) => (
                     <option key={y.id} value={y.id}>
@@ -280,9 +376,15 @@ export function Hero() {
                     </option>
                   ))}
                 </SelectField>
-                <SelectField label="Variant" id="hero-variant" value={variant} onChange={setVariant}>
+                <SelectField
+                  label="Variant"
+                  id="hero-variant"
+                  value={variant}
+                  onChange={setVariant}
+                  disabled={!brand || variantsLoading || variantList.length === 0}
+                >
                   <option value="" disabled hidden>
-                    Select Variant
+                    {variantPlaceholder}
                   </option>
                   {variantList.map((v) => (
                     <option key={v.id} value={v.id}>

@@ -1,5 +1,6 @@
 import { Minus, Plus, Trash2 } from 'lucide-react'
-import { formatInr, getPartImage } from '../../data/partsCatalog'
+import { formatInr } from '../../data/partsCatalog'
+import { partDisplayImage } from '../../lib/productImage.js'
 import { SafeImg } from '../ui/SafeImg'
 
 /**
@@ -16,7 +17,7 @@ export function CartLineRow({
   compact = false,
   readOnly = false,
 }) {
-  const img = part.imageUrl ? { src: part.imageUrl, alt: part.name } : getPartImage(part.imageKey)
+  const img = partDisplayImage(part)
   const imgClass = compact ? 'h-16 w-20' : 'h-20 w-24'
 
   return (

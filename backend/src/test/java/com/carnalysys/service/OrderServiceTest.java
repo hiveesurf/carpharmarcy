@@ -59,6 +59,8 @@ class OrderServiceTest {
   @Mock private NotificationService notificationService;
   @Mock private AdminUserRepository adminUserRepository;
   @Mock private WhatsappService whatsappService;
+  @Mock private DeliveryWorkflowService deliveryWorkflowService;
+  @Mock private LowStockAlertService lowStockAlertService;
 
   @InjectMocks private OrderService orderService;
 

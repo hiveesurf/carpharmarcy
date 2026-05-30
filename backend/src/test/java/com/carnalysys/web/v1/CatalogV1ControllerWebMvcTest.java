@@ -29,7 +29,7 @@ class CatalogV1ControllerWebMvcTest extends ControllerSliceTestBase {
   @Test
   void productsDelegatesToService() throws Exception {
     when(catalogService.listProductsPage(
-            eq("part"), eq(null), eq(null), eq(null), eq(null), eq(null), eq(0), eq(24)))
+            eq("part"), eq(null), eq(null), eq(null), eq(null), eq(null), eq(null), eq(0), eq(24)))
         .thenReturn(
             Map.of(
                 "items", List.of(),

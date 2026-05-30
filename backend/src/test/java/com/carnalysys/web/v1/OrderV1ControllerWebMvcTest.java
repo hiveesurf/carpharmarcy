@@ -98,4 +98,24 @@ class OrderV1ControllerWebMvcTest extends ControllerSliceTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.order.id").value("ord_1"));
   }
+
+  @Test
+  void getDeliveryOtpOk() throws Exception {
+    when(orderService.getDeliveryOtpForOwner(USER, "ord_1"))
+        .thenReturn(
+            Map.of(
+                "deliveryStage",
+                "otp_pending",
+                "otpPending",
+                true,
+                "otpExpired",
+                false,
+                "deliveryOtp",
+                "123456"));
+    mockMvc
+        .perform(get("/api/v1/orders/ord_1/delivery-otp").with(asUser(USER)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.deliveryOtp").value("123456"))
+        .andExpect(jsonPath("$.data.otpPending").value(true));
+  }
 }

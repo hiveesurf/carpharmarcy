@@ -25,6 +25,31 @@
 - `APP_PAYMENT_WEBHOOK_SECRET`
 - `APP_CORS_ALLOWED_ORIGINS`
 
+## Firebase OTP variables
+
+Frontend (`.env.local`, `.env.uat`, `.env.production` as applicable):
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+
+Backend (choose one credential mode):
+
+- Inline:
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_CLIENT_EMAIL`
+  - `FIREBASE_PRIVATE_KEY`
+- Or file path:
+  - `FIREBASE_SERVICE_ACCOUNT_PATH`
+
+Notes:
+
+- Firebase is used only for login OTP.
+- Twilio remains in use for WhatsApp order status and low-stock alerts.
+- Legacy `POST /auth/send-otp` and `POST /auth/verify-otp` remain available for rollback.
+
 ## Frontend API strategy (canonical)
 
 Use relative API base (`/api/v1`) for UAT/prod builds.

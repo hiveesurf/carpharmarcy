@@ -74,7 +74,7 @@ public class AddressService {
     if (body.containsKey("city")) a.setCity(String.valueOf(body.get("city")));
     if (body.containsKey("state")) a.setState(strOrNull(body.get("state")));
     if (body.containsKey("pincode")) a.setPincode(String.valueOf(body.get("pincode")));
-    if (body.containsKey("country")) a.setCountry(String.valueOf(body.get("country")));
+    if (body.containsKey("country")) a.setCountry(normalizeCountry(body.get("country")));
     if (body.containsKey("label")) a.setLabel(strOrNull(body.get("label")));
     if (body.containsKey("isDefault")) a.setDefaultAddress(Boolean.TRUE.equals(body.get("isDefault")));
     if (a.getLine1() == null || a.getLine1().isBlank()) a.setLine1("");
@@ -84,6 +84,16 @@ public class AddressService {
 
   private static String strOrNull(Object o) {
     return o == null ? null : String.valueOf(o);
+  }
+
+  private static String normalizeCountry(Object raw) {
+    if (raw == null) return "IN";
+    String t = String.valueOf(raw).trim();
+    if (t.isEmpty()) return "IN";
+    String lower = t.toLowerCase();
+    if ("india".equals(lower) || "in".equals(lower)) return "IN";
+    if (t.length() == 2) return t.toUpperCase();
+    return t.length() > 2 ? t.substring(0, 2).toUpperCase() : t.toUpperCase();
   }
 
   private Map<String, Object> toMap(AddressEntity a) {

@@ -7,7 +7,7 @@ import { Button } from '../ui/Button'
 import { getAccessToken } from '../../lib/authTokens.js'
 import { resolveSessionRole } from '../../lib/jwtPayload.js'
 
-const OTP_MIN_LENGTH = 4
+const OTP_MIN_LENGTH = 6
 
 function normalizeMobileInput(value) {
   const digits = String(value ?? '').replace(/\D/g, '')
@@ -21,6 +21,24 @@ function resolveOtpTtlSeconds(data) {
   return typeof ttl === 'number' && ttl > 0 ? ttl : 20
 }
 
+const showDevDemoOtp = import.meta.env.DEV
+
+function DemoOtpDevBanner({ code }) {
+  if (!showDevDemoOtp || !code) return null
+  return (
+    <div
+      className="rounded border-2 border-amber-400/80 bg-amber-500/15 px-4 py-3 text-center shadow-[0_0_24px_-4px_rgba(251,191,36,0.45)]"
+      role="status"
+      data-testid="auth-demo-otp-banner"
+    >
+      <p className="font-sans text-sm font-semibold text-amber-100">WhatsApp unavailable.</p>
+      <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-amber-200/90">Demo OTP</p>
+      <p className="mt-1 font-mono text-2xl font-bold tracking-[0.35em] text-amber-50">{code}</p>
+      <p className="mt-2 text-[11px] text-amber-200/70">Local/dev only — not shown in production builds.</p>
+    </div>
+  )
+}
+
 export function AuthModals() {
   const navigate = useNavigate()
   const { modalOpen, closeAuth, sendOtp, verifyOtp } = useAuth()
@@ -32,11 +50,13 @@ export function AuthModals() {
   const [verifying, setVerifying] = useState(false)
   const [otpExpiresIn, setOtpExpiresIn] = useState(0)
   const [otpExpired, setOtpExpired] = useState(false)
+  const [demoOtpHint, setDemoOtpHint] = useState('')
 
   const clearOtpFlow = useCallback(() => {
     setOtp('')
     setOtpExpiresIn(0)
     setOtpExpired(false)
+    setDemoOtpHint('')
   }, [])
 
   const reset = useCallback(() => {
@@ -52,6 +72,18 @@ export function AuthModals() {
     setOtpExpired(false)
     setOtpExpiresIn(resolveOtpTtlSeconds(sendData))
   }, [])
+
+  const applySendOtpData = useCallback(
+    (sendData) => {
+      beginOtpCountdown(sendData)
+      if (showDevDemoOtp && typeof sendData?.demoOtp === 'string' && sendData.demoOtp) {
+        setDemoOtpHint(sendData.demoOtp)
+      } else {
+        setDemoOtpHint('')
+      }
+    },
+    [beginOtpCountdown],
+  )
 
   const handleClose = () => {
     reset()
@@ -85,7 +117,7 @@ export function AuthModals() {
       }
       clearOtpFlow()
       setStep('otp')
-      beginOtpCountdown(r.data)
+      applySendOtpData(r.data)
     } finally {
       setSendingOtp(false)
     }
@@ -102,7 +134,7 @@ export function AuthModals() {
         return
       }
       setOtp('')
-      beginOtpCountdown(r.data)
+      applySendOtpData(r.data)
     } finally {
       setSendingOtp(false)
     }
@@ -208,12 +240,14 @@ export function AuthModals() {
                 >
                   {sendingOtp ? 'Sending…' : 'Send OTP'}
                 </Button>
+                {/* Firebase reCAPTCHA container — disabled while Firebase auth is off */}
               </form>
             ) : (
               <form onSubmit={onVerify} className="space-y-4">
                 <p className="font-sans text-sm text-mist">
                   Code sent to <span className="font-semibold text-fog">{phone}</span>
                 </p>
+                <DemoOtpDevBanner code={demoOtpHint} />
                 <div>
                   <label htmlFor="auth-otp" className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-hud">
                     Enter OTP

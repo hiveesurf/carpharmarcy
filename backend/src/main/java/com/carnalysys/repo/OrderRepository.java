@@ -55,6 +55,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, String> {
   Page<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseOrderByPlacedAtDesc(
       String assignedDeliveryAdminEmail, Pageable pageable);
 
+  Page<OrderEntity> findByAssignedDeliveryAdminEmailIgnoreCaseAndUser_PhoneE164OrderByPlacedAtDesc(
+      String assignedDeliveryAdminEmail, String phoneE164, Pageable pageable);
+
   @Query(
       """
       SELECT COUNT(o) FROM OrderEntity o

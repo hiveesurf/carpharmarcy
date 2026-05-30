@@ -7,6 +7,7 @@ function toQuery(params = {}) {
   if (params.sort) q.set('sort', params.sort)
   if (params.carModel) q.set('carModel', params.carModel)
   if (params.carId) q.set('carId', params.carId)
+  if (params.partBrand) q.set('partBrand', params.partBrand)
   if (params.type) q.set('type', params.type)
   if (params.page != null) q.set('page', String(params.page))
   if (params.pageSize != null) q.set('pageSize', String(params.pageSize))

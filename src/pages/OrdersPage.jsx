@@ -8,6 +8,13 @@ import * as orderService from '../services/orderService.js'
 import * as paymentService from '../services/paymentService.js'
 import { getFetchErrorMessage } from '../lib/apiErrorMessage.js'
 import { apiV1Base } from '../api/client.js'
+import {
+  deliveryStageLabel,
+  deliveryTimelineSteps,
+  shouldShowCustomerDeliverySection,
+} from '../lib/deliveryStage.js'
+import { CustomerDeliveryOtpBlock } from '../components/orders/CustomerDeliveryOtpBlock.jsx'
+import { telHref, whatsAppHref } from '../lib/deliveryLinks.js'
 
 const ORDER_STATUS_FILTERS = [
   { key: 'all', label: 'All' },
@@ -81,7 +88,18 @@ export function OrdersPage() {
   const [retryingOrderId, setRetryingOrderId] = useState(null)
   const [retryError, setRetryError] = useState(null)
   const [retryErrorOrderId, setRetryErrorOrderId] = useState(null)
+  const [detailRefreshingId, setDetailRefreshingId] = useState(null)
   const apiOn = Boolean(apiV1Base())
+
+  const refreshOrderDetail = useCallback(
+    async (orderId) => {
+      if (!apiOn || !orderId) return null
+      const fresh = await orderService.getOrder(orderId)
+      setItems((prev) => prev.map((row) => (row.id === orderId ? { ...row, ...fresh } : row)))
+      return fresh
+    },
+    [apiOn],
+  )
 
   const filteredItems = items.filter((o) => {
     const status = String(o?.status || '').toLowerCase()
@@ -95,15 +113,39 @@ export function OrdersPage() {
     (n) => n?.topic === 'order_status' || n?.topic === 'payment' || n?.sourceType === 'order',
   )
 
-  function focusOrder(orderId) {
+  async function focusOrder(orderId) {
     if (!orderId) return
     setExpandedOrderId(orderId)
+    setDetailRefreshingId(orderId)
+    try {
+      await refreshOrderDetail(orderId)
+    } catch {
+      /* list row still usable */
+    } finally {
+      setDetailRefreshingId(null)
+    }
     window.setTimeout(() => {
       const el = document.getElementById(`order-${orderId}`)
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }, 50)
+  }
+
+  async function handleOrderToggle(orderId) {
+    if (expandedOrderId === orderId) {
+      setExpandedOrderId(null)
+      return
+    }
+    setExpandedOrderId(orderId)
+    setDetailRefreshingId(orderId)
+    try {
+      await refreshOrderDetail(orderId)
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setDetailRefreshingId(null)
+    }
   }
 
   const load = useCallback(async () => {
@@ -387,7 +429,7 @@ export function OrdersPage() {
                   <button
                     type="button"
                     className="flex w-full flex-col gap-3 border-b border-steel/50 px-5 py-4 text-left sm:flex-row sm:items-center sm:justify-between"
-                    onClick={() => setExpandedOrderId((prev) => (prev === o.id ? null : o.id))}
+                    onClick={() => void handleOrderToggle(o.id)}
                     aria-expanded={expanded}
                   >
                     <div>
@@ -447,6 +489,82 @@ export function OrdersPage() {
                           </tbody>
                         </table>
                       </div>
+                      {shouldShowCustomerDeliverySection(o) ? (
+                        <div className="border-t border-steel/40 px-5 py-4">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-mono text-[10px] uppercase tracking-wider text-hud">Delivery</p>
+                            <button
+                              type="button"
+                              disabled={detailRefreshingId === o.id}
+                              onClick={() => void refreshOrderDetail(o.id)}
+                              className="font-sans text-[11px] font-semibold text-accent hover:underline disabled:opacity-50"
+                            >
+                              {detailRefreshingId === o.id ? 'Refreshing…' : 'Refresh delivery'}
+                            </button>
+                          </div>
+                          {o.deliveryPartner ? (
+                            <div className="mb-3 rounded-lg border border-steel/50 bg-slate/30 px-3 py-2 text-sm text-mist">
+                              <p className="font-medium text-fog">
+                                {o.deliveryPartner.name || 'Delivery partner'}
+                              </p>
+                              {o.deliveryPartner.phone ? (
+                                <p className="mt-1 font-mono text-xs">{o.deliveryPartner.phone}</p>
+                              ) : null}
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {telHref(o.deliveryPartner.phone) ? (
+                                  <a
+                                    href={telHref(o.deliveryPartner.phone)}
+                                    className="font-sans text-[11px] font-semibold text-accent hover:underline"
+                                  >
+                                    Call partner
+                                  </a>
+                                ) : null}
+                                {whatsAppHref(o.deliveryPartner.phone) ? (
+                                  <a
+                                    href={whatsAppHref(o.deliveryPartner.phone)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-sans text-[11px] font-semibold text-accent hover:underline"
+                                  >
+                                    WhatsApp partner
+                                  </a>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
+                          <p className="text-xs text-mist">
+                            Stage: <span className="font-semibold text-fog">{deliveryStageLabel(o.deliveryStage)}</span>
+                          </p>
+                          <ol className="mt-2 space-y-1 text-xs text-mist">
+                            {deliveryTimelineSteps(o).map((step) => (
+                              <li key={step.key}>
+                                <span className="text-fog">{step.label}</span>
+                                {step.at ? (
+                                  <span className="ml-2 font-mono text-[10px]">
+                                    {new Date(step.at).toLocaleString()}
+                                  </span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ol>
+                          {detailRefreshingId === o.id ? (
+                            <p className="mt-3 text-xs text-mist">Loading latest delivery details…</p>
+                          ) : null}
+                          <CustomerDeliveryOtpBlock
+                            orderId={o.id}
+                            deliveryStage={o.deliveryStage}
+                            deliveryOtpVerified={o.deliveryOtpVerified}
+                            active={expandedOrderId === o.id}
+                          />
+                          {o.deliveryStage === 'delivery_failed' ? (
+                            <p className="mt-2 text-xs text-flare">
+                              Delivery failed
+                              {o.deliveryFailedReasonLabel ? `: ${o.deliveryFailedReasonLabel}` : ''}
+                              {o.deliveryFailedReasonNote ? ` — ${o.deliveryFailedReasonNote}` : ''}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {Array.isArray(o.statusHistory) && o.statusHistory.length > 0 ? (
                         <div className="border-t border-steel/40 px-5 py-4">
                           <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-hud">Order updates</p>

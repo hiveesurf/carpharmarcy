@@ -190,6 +190,34 @@ export function adminAssignDelivery(orderId, deliveryAdminEmail) {
   return apiPatch(`/admin/orders/${encodeURIComponent(orderId)}/assign-delivery`, { deliveryAdminEmail })
 }
 
+export function adminDeliveryAccept(orderId) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/accept`, {})
+}
+
+export function adminDeliveryOutForDelivery(orderId) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/out-for-delivery`, {})
+}
+
+export function adminDeliveryResendOtp(orderId) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/resend-otp`, {})
+}
+
+export function adminDeliveryVerifyOtp(orderId, otp) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/verify-otp`, { otp })
+}
+
+export function adminDeliveryUploadProof(orderId, proofPhotoUrl) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/proof`, { proofPhotoUrl })
+}
+
+export function adminDeliveryMarkDelivered(orderId) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/delivered`, {})
+}
+
+export function adminDeliveryMarkFailed(orderId, { reason, note }) {
+  return apiPost(`/admin/orders/${encodeURIComponent(orderId)}/delivery/failed`, { reason, note })
+}
+
 /**
  * @param {{ from?: string, to?: string, month?: string }} [query] - month `yyyy-MM`, from/to `yyyy-MM-dd` (UTC). Backend prefers `month` when set.
  */

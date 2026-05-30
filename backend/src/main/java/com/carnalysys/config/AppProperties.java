@@ -9,6 +9,8 @@ public record AppProperties(
     Jwt jwt,
     RefreshToken refreshToken,
     Otp otp,
+    Delivery delivery,
+    Firebase firebase,
     Cors cors,
     Payment payment) {
 
@@ -17,6 +19,19 @@ public record AppProperties(
   public record RefreshToken(int ttlSeconds) {}
 
   public record Otp(String demoCode, int ttlSeconds) {}
+
+  /**
+   * Customer delivery OTP (separate from login OTP challenge TTL).
+   *
+   * @param demoOtpEnabled when true and active profile is local/dev, delivery OTP uses {@code app.otp.demo-code}
+   */
+  public record Delivery(int otpTtlSeconds, int otpResendCooldownSeconds, boolean demoOtpEnabled) {}
+
+  public record Firebase(
+      String projectId,
+      String clientEmail,
+      String privateKey,
+      String serviceAccountPath) {}
 
   public record Cors(String allowedOrigins) {
     public List<String> originList() {

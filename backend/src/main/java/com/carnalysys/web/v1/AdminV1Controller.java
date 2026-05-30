@@ -8,6 +8,7 @@ import com.carnalysys.web.support.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -179,6 +180,59 @@ public class AdminV1Controller {
       HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
     String email = body == null ? "" : String.valueOf(body.getOrDefault("deliveryAdminEmail", ""));
     return ApiResponses.ok(req, adminApiService.assignDelivery(id, email));
+  }
+
+  @PostMapping("/orders/{id}/delivery/accept")
+  public ApiEnvelope<Map<String, Object>> deliveryAccept(HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.deliveryAcceptAssignment(id));
+  }
+
+  @PostMapping("/orders/{id}/delivery/out-for-delivery")
+  public ApiEnvelope<Map<String, Object>> deliveryOutForDelivery(
+      HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.deliveryMarkOutForDelivery(id));
+  }
+
+  @PostMapping("/orders/{id}/delivery/resend-otp")
+  public ApiEnvelope<Map<String, Object>> deliveryResendOtp(
+      HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.deliveryResendOtp(id));
+  }
+
+  @PostMapping("/orders/{id}/delivery/verify-otp")
+  public ApiEnvelope<Map<String, Object>> deliveryVerifyOtp(
+      HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
+    String otp = body == null ? "" : String.valueOf(body.getOrDefault("otp", ""));
+    return ApiResponses.ok(req, adminApiService.deliveryVerifyOtp(id, otp));
+  }
+
+  @PostMapping("/orders/{id}/delivery/proof")
+  public ApiEnvelope<Map<String, Object>> deliveryUploadProof(
+      HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
+    String proof =
+        body != null && body.get("proofPhotoUrl") != null
+            ? String.valueOf(body.get("proofPhotoUrl"))
+            : "";
+    return ApiResponses.ok(req, adminApiService.deliveryUploadProof(id, proof));
+  }
+
+  @GetMapping("/orders/{id}/delivery/proof")
+  public ResponseEntity<byte[]> deliveryProof(HttpServletRequest req, @PathVariable String id) {
+    return adminApiService.getOrderDeliveryProof(id);
+  }
+
+  @PostMapping("/orders/{id}/delivery/delivered")
+  public ApiEnvelope<Map<String, Object>> deliveryDelivered(
+      HttpServletRequest req, @PathVariable String id) {
+    return ApiResponses.ok(req, adminApiService.deliveryMarkDelivered(id));
+  }
+
+  @PostMapping("/orders/{id}/delivery/failed")
+  public ApiEnvelope<Map<String, Object>> deliveryFailed(
+      HttpServletRequest req, @PathVariable String id, @RequestBody Map<String, Object> body) {
+    String reason = body == null ? "" : String.valueOf(body.getOrDefault("reason", ""));
+    String note = body == null ? "" : String.valueOf(body.getOrDefault("note", ""));
+    return ApiResponses.ok(req, adminApiService.deliveryMarkFailed(id, reason, note));
   }
 
   @GetMapping("/delivery/me/summary")

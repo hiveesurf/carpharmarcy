@@ -1,8 +1,7 @@
 spring:
   application:
     name: carnalysys-api
-  profiles:
-    default: local
+  # No default profile — set SPRING_PROFILES_ACTIVE=local|uat|prod explicitly (avoids demo OTP on misconfigured deploys).
   servlet:
     multipart:
       max-file-size: 10MB
@@ -61,6 +60,15 @@ app:
   otp:
     demo-code: "123456"
     ttl-seconds: 20
+  delivery:
+    otp-ttl-seconds: 900
+    otp-resend-cooldown-seconds: 30
+    demo-otp-enabled: false
+  firebase:
+    project-id: ${FIREBASE_PROJECT_ID:}
+    client-email: ${FIREBASE_CLIENT_EMAIL:}
+    private-key: ${FIREBASE_PRIVATE_KEY:}
+    service-account-path: ${FIREBASE_SERVICE_ACCOUNT_PATH:}
   cors:
     allowed-origins: ""
   payment:

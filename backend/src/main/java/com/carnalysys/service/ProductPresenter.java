@@ -4,6 +4,7 @@ import com.carnalysys.domain.CarModelEntity;
 import com.carnalysys.domain.Product;
 import com.carnalysys.domain.ProductType;
 import com.carnalysys.domain.ProductVehicleSpec;
+import com.carnalysys.util.PartBrandSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -48,16 +49,7 @@ public class ProductPresenter {
       m.put("compatibleCars", resolveCompatibleCarLabels(fitmentLabels, fitmentCarIds, carsById));
       m.put("compatibleCarIds", fitmentCarIds != null ? fitmentCarIds : List.of());
       m.put("compatibleCarDetails", toCarDetails(fitmentCarIds, carsById));
-      JsonNode md = p.getMetadata();
-      if (md != null && md.has("primaryImageUrl") && md.get("primaryImageUrl").isTextual()) {
-        String url = md.get("primaryImageUrl").asText().trim();
-        if (!url.isEmpty()) {
-          m.put("image", uploadStorageService.resolvePublicVehicleUrl(url));
-        }
-      }
-      if (md != null && md.has("galleryExtras") && md.get("galleryExtras").isArray()) {
-        m.put("gallery", jsonArrayToList(md.get("galleryExtras")));
-      }
+      applyPartImages(m, p.getMetadata());
     } else {
       m.put("compatibleCars", List.of());
       if (spec != null) {
@@ -77,6 +69,16 @@ public class ProductPresenter {
     }
     if (p.getType() == ProductType.part && p.getDescription() != null) {
       m.put("description", p.getDescription());
+    }
+    if (p.getType() == ProductType.part && p.getMetadata() != null && p.getMetadata().isObject()) {
+      JsonNode md = p.getMetadata();
+      String publicBrand = PartBrandSupport.resolveDisplayBrand(md);
+      if (publicBrand != null) {
+        m.put("brand", publicBrand);
+      }
+      putMetadataConvenienceField(m, md, "partNumber");
+      putMetadataConvenienceField(m, md, "unitVolume");
+      putMetadataConvenienceField(m, md, "supplierName");
     }
     return m;
   }
@@ -116,6 +118,55 @@ public class ProductPresenter {
     String model = c.getModel() != null ? c.getModel().trim() : "";
     String joined = (make + " " + model).trim();
     return joined.isEmpty() && c.getId() != null ? c.getId() : joined;
+  }
+
+  private void applyPartImages(Map<String, Object> m, JsonNode md) {
+    if (md == null || md.isNull()) {
+      return;
+    }
+    String primary = metadataText(md, "primaryImageUrl");
+    if (primary.isEmpty()) {
+      primary = metadataText(md, "imageUrl");
+    }
+    if (primary.isEmpty()) {
+      primary = metadataText(md, "image");
+    }
+    List<Object> galleryRaw =
+        md.has("galleryExtras") && md.get("galleryExtras").isArray()
+            ? jsonArrayToList(md.get("galleryExtras"))
+            : List.of();
+    List<Object> gallery = normalizeGallery(galleryRaw);
+    if (!gallery.isEmpty()) {
+      m.put("gallery", gallery);
+      if (primary.isEmpty()) {
+        primary = galleryFirstSrc(gallery);
+      }
+    }
+    if (!primary.isEmpty()) {
+      m.put("image", uploadStorageService.resolvePublicVehicleUrl(primary));
+    }
+  }
+
+  private static String metadataText(JsonNode md, String key) {
+    if (!md.has(key) || !md.get(key).isTextual()) {
+      return "";
+    }
+    return md.get(key).asText().trim();
+  }
+
+  private static String galleryFirstSrc(List<Object> gallery) {
+    if (gallery == null || gallery.isEmpty()) {
+      return "";
+    }
+    Object first = gallery.get(0);
+    if (first instanceof Map<?, ?> map) {
+      Object src = map.get("src");
+      return src != null ? String.valueOf(src).trim() : "";
+    }
+    if (first instanceof String s) {
+      return s.trim();
+    }
+    return "";
   }
 
   private List<Map<String, Object>> toCarDetails(

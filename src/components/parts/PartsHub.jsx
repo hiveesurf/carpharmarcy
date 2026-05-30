@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { catalogHref } from '../../lib/partBrand.js'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronRight, Heart, Search } from 'lucide-react'
@@ -8,7 +9,6 @@ import {
   PARTS_HOME_PREVIEW_LIMIT,
   formatInr,
   getPartById,
-  getPartImage,
 } from '../../data/partsCatalog'
 import { useCart } from '../../context/useCart'
 import { useAuth } from '../../context/useAuth'
@@ -23,6 +23,7 @@ import { apiV1Base } from '../../api/client.js'
 import { fetchProducts, fetchProductById } from '../../services/productService.js'
 import { loadWishlist, toggleWishlistProduct } from '../../services/wishlistService.js'
 import { mapApiProductToPart } from '../../lib/mapApiProduct.js'
+import { partDisplayImage } from '../../lib/productImage.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { ApiSectionError } from '../ui/ApiSectionError'
 
@@ -64,7 +65,7 @@ export function PartsHub() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag before async fetch
     setApiLoading(true)
     setApiError(null)
-    fetchProducts({ type: 'part', page: 0, pageSize: PARTS_HOME_PREVIEW_LIMIT })
+    fetchProducts({ type: 'part', page: 0, pageSize: 24 })
       .then((d) => {
         if (!cancel) {
           setApiParts((d.items || []).map(mapApiProductToPart))
@@ -171,10 +172,12 @@ export function PartsHub() {
         p.compatibleCars.includes(carFilter)
       if (!matchesCar) return false
       if (!q) return true
+      const brand = (p.brand ?? '').toLowerCase()
       return (
         p.name.toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q) ||
+        brand.includes(q) ||
         p.compatibleCars.some((c) => c.toLowerCase().includes(q))
       )
     })
@@ -204,9 +207,15 @@ export function PartsHub() {
     }
   }
 
+  const viewAllHref = useMemo(() => {
+    const tokens = [query.trim()]
+    if (carFilter !== 'All vehicles') tokens.push(carFilter)
+    return catalogHref({ q: tokens.filter(Boolean).join(' ').trim() || undefined })
+  }, [query, carFilter])
+
   const viewAll = (
     <Link
-      to="/catalog"
+      to={viewAllHref}
       className="inline-flex items-center gap-1 rounded-xl bg-accent px-5 py-2.5 font-sans text-sm font-semibold text-on-accent shadow-md transition-[transform,filter] hover:brightness-95 active:scale-[0.98]"
     >
       View all
@@ -278,8 +287,10 @@ export function PartsHub() {
               <span className="text-flare">Featured products API unavailable</span>
             ) : (
               <>
-                Showing <span className="font-semibold text-accent">{filtered.length}</span> of {sourceParts.length}{' '}
-                SKUs · <span className="text-mist/90">Click a card for details</span>
+                Showing <span className="font-semibold text-accent">{previewList.length}</span> of{' '}
+                <span className="font-semibold text-accent">{filtered.length}</span> matching
+                {useApi ? '' : ` of ${sourceParts.length}`} ·{' '}
+                <span className="text-mist/90">Click a card for details</span>
               </>
             )}
           </p>
@@ -302,9 +313,7 @@ export function PartsHub() {
           >
             {!apiError &&
               previewList.map((part) => {
-              const img = part.imageUrl
-                ? { src: part.imageUrl, alt: part.name }
-                : getPartImage(part.imageKey)
+              const img = partDisplayImage(part)
               const inCart = getQty(part.id)
               const left = Math.max(0, part.totalStock - inCart)
               const canAdd = left > 0
@@ -407,18 +416,13 @@ export function PartsHub() {
                         <button
                           type="button"
                           disabled={!canAdd}
-                          onClick={async () => {
-                            if (!useApi) {
-                              openAuth()
-                              return
-                            }
-                            if (!user) {
-                              openAuth()
-                              return
-                            }
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!canAdd) return
                             if (getQty(part.id) <= 0) {
                               await addToCart(part.id, 1)
                             }
+                            if (getQty(part.id) <= 0) return
                             navigate('/checkout')
                           }}
                           className={`${PART_CARD_CTA_PILL} min-w-0 flex-1 basis-0`}

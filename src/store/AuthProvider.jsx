@@ -6,6 +6,7 @@ import { subscribeAccessTokenChanged } from '../lib/authTokenEvents.js'
 import { getAccessToken } from '../lib/authTokens.js'
 import { parseAccessTokenPayload, resolveSessionRole } from '../lib/jwtPayload.js'
 import { subscribeSessionDead, notifySessionDead } from '../lib/sessionEvents.js'
+import { notifyWorkforceAvailabilityChanged } from '../lib/workforceEvents.js'
 
 const STORAGE_USER = 'carnalysys-user-v2'
 
@@ -33,7 +34,6 @@ export function AuthProvider({ children }) {
   const [tokenVersion, setTokenVersion] = useState(0)
   /** False until we finish optional refresh when API + stored user (avoids wishlist before JWT exists). */
   const [authHydrated, setAuthHydrated] = useState(() => !(apiV1Base() && loadUser()))
-
   useEffect(() => {
     return subscribeAccessTokenChanged(() => setTokenVersion((v) => v + 1))
   }, [])
@@ -180,7 +180,15 @@ export function AuthProvider({ children }) {
   const sendOtp = useCallback(async (phone) => {
     try {
       const res = await authService.sendOtp(phone)
-      return { ok: true, data: res?.data ?? null }
+      const d = res?.data && typeof res.data === 'object' ? res.data : {}
+      const data = { sent: d.sent !== false }
+      if (typeof d.ttlSeconds === 'number' && d.ttlSeconds > 0) {
+        data.ttlSeconds = d.ttlSeconds
+      }
+      if (typeof d.demoOtp === 'string' && d.demoOtp.trim()) {
+        data.demoOtp = d.demoOtp.trim()
+      }
+      return { ok: true, data }
     } catch (e) {
       if (e?.status === 403) {
         return {
@@ -213,6 +221,9 @@ export function AuthProvider({ children }) {
         ...(typeof u.avatarUrl === 'string' && u.avatarUrl ? { avatarUrl: u.avatarUrl } : {}),
       })
       setModalOpen(false)
+      if (typeof u.role === 'string' && u.role === 'delivery') {
+        notifyWorkforceAvailabilityChanged()
+      }
       return { ok: true, user: u }
     } catch (e) {
       return { ok: false, message: e?.message || 'Verification failed' }
@@ -220,9 +231,13 @@ export function AuthProvider({ children }) {
   }, [])
 
   const signOut = useCallback(async () => {
+    const wasDelivery = user?.role === 'delivery'
     await authService.logout()
     setUser(null)
-  }, [])
+    if (wasDelivery) {
+      notifyWorkforceAvailabilityChanged()
+    }
+  }, [user?.role])
 
   const patchUser = useCallback((partial) => {
     setUser((u) => (u ? { ...u, ...partial } : u))

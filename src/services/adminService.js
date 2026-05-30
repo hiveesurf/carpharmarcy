@@ -1,6 +1,7 @@
 import * as adminApi from '../api/adminApi.js'
 import { apiV1Base } from '../api/client.js'
 import { buildAdminProductUpdateBody } from '../lib/adminProductUpdateBody.js'
+import { notifyWorkforceAvailabilityChanged } from '../lib/workforceEvents.js'
 
 export async function dashboard() {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
@@ -380,6 +381,7 @@ export async function restoreEmployee(phone) {
 export async function setEmployeeAvailability(phone, availability) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminSetEmployeeAvailability(phone, availability)
+  notifyWorkforceAvailabilityChanged()
   return data?.employee ?? null
 }
 
@@ -387,6 +389,48 @@ export async function assignDelivery(orderId, deliveryAdminEmail) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminAssignDelivery(orderId, deliveryAdminEmail)
   return data ?? null
+}
+
+export async function deliveryAccept(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryAccept(orderId)
+  return data?.order ?? null
+}
+
+export async function deliveryOutForDelivery(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryOutForDelivery(orderId)
+  return data?.order ?? null
+}
+
+export async function deliveryResendOtp(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryResendOtp(orderId)
+  return data?.order ?? null
+}
+
+export async function deliveryVerifyOtp(orderId, otp) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryVerifyOtp(orderId, otp)
+  return data?.order ?? null
+}
+
+export async function deliveryUploadProof(orderId, proofPhotoUrl) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryUploadProof(orderId, proofPhotoUrl)
+  return data?.order ?? null
+}
+
+export async function deliveryMarkDelivered(orderId) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryMarkDelivered(orderId)
+  return data?.order ?? null
+}
+
+export async function deliveryMarkFailed(orderId, { reason, note }) {
+  if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
+  const { data } = await adminApi.adminDeliveryMarkFailed(orderId, { reason, note })
+  return data?.order ?? null
 }
 
 /**
@@ -407,6 +451,7 @@ export async function deliveryPartnerSummary() {
 export async function setMyDeliveryAvailability(availability) {
   if (!apiV1Base()) throw new Error('API_UNAVAILABLE')
   const { data } = await adminApi.adminSetMyDeliveryAvailability(availability)
+  notifyWorkforceAvailabilityChanged()
   return data?.employee ?? null
 }
 

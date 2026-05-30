@@ -21,6 +21,11 @@ import { imageFileToCompressedDataUrl } from '../../lib/compressImage.js'
 import { employeePhotoDisplayUrl } from '../../lib/adminEmployeeAssets.js'
 import { EmployeeAvatar } from '../components/EmployeeAvatar.jsx'
 import { normalizeEmployeePhone, validateEmployeeForm } from '../../lib/employeeFormValidation.js'
+import {
+  employeeAvailabilityFromRow,
+  normalizeEmployeeAvailability,
+} from '../../lib/employeeAvailability.js'
+import { subscribeWorkforceAvailabilityRefresh } from '../../lib/workforceEvents.js'
 import { AdminStatCard } from '../components/AdminStatCard.jsx'
 
 const MAX_RAW_FILE = 12 * 1024 * 1024
@@ -46,16 +51,9 @@ function emptyForm() {
   return { phone: '', role: 'sales', name: '' }
 }
 
-function normalizeAvailability(raw) {
-  return String(raw ?? '').trim().toLowerCase()
-}
-
 /** @returns {'online' | 'busy' | 'offline'} */
-function getEmployeeDisplayStatus(availability) {
-  const a = normalizeAvailability(availability)
-  if (a === 'online') return 'online'
-  if (a === 'busy') return 'busy'
-  return 'offline'
+function getEmployeeDisplayStatus(row) {
+  return employeeAvailabilityFromRow(row)
 }
 
 function formatDateTime(iso) {
@@ -84,7 +82,7 @@ function buildDisplaySummary(employees, apiSummary) {
   let online = 0
   let offline = 0
   for (const e of employees) {
-    const a = normalizeAvailability(e.availability)
+    const a = employeeAvailabilityFromRow(e)
     if (a === 'online') online += 1
     else if (a !== 'busy') offline += 1
   }
@@ -145,8 +143,8 @@ function RoleBadge({ role }) {
   )
 }
 
-function AvailabilityBadge({ availability }) {
-  const status = getEmployeeDisplayStatus(availability)
+function AvailabilityBadge({ row }) {
+  const status = getEmployeeDisplayStatus(row)
   const config = {
     online: {
       label: 'Online',
@@ -167,7 +165,7 @@ function AvailabilityBadge({ availability }) {
   return <span className={`${STATUS_BADGE_PILL} ${c.pill}`}>{c.label}</span>
 }
 
-function EmployeeRowActions({ row, onEdit, onDelete }) {
+function EmployeeRowActions({ row, onEdit, onDelete, onSetAvailability, availabilityBusy }) {
   const [open, setOpen] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
   const triggerRef = useRef(null)
@@ -243,6 +241,36 @@ function EmployeeRowActions({ row, onEdit, onDelete }) {
             }}
             className="overflow-hidden rounded-lg border border-[#d5d9d9] bg-white py-1 shadow-[0_4px_14px_rgba(15,17,17,0.15)] dark:border-steel/60 dark:bg-slate dark:shadow-lg"
           >
+            {String(row.role ?? '').toLowerCase() === 'delivery' && onSetAvailability ? (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={availabilityBusy}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[#0f1111] hover:bg-[#f7fafa] disabled:opacity-50 dark:text-fog dark:hover:bg-steel/30"
+                  onClick={() => {
+                    setOpen(false)
+                    onSetAvailability(row, 'online')
+                  }}
+                >
+                  <Wifi className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                  Set online
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={availabilityBusy}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[#0f1111] hover:bg-[#f7fafa] disabled:opacity-50 dark:text-fog dark:hover:bg-steel/30"
+                  onClick={() => {
+                    setOpen(false)
+                    onSetAvailability(row, 'offline')
+                  }}
+                >
+                  <WifiOff className="h-4 w-4 text-[#565959] dark:text-mist" aria-hidden />
+                  Set offline
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -535,6 +563,7 @@ export function AdminEmployeesPage() {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
   const [restoreBusyPhone, setRestoreBusyPhone] = useState(null)
+  const [availabilityBusyPhone, setAvailabilityBusyPhone] = useState(null)
   const [deletedDetailsTarget, setDeletedDetailsTarget] = useState(null)
 
   const displaySummary = useMemo(
@@ -592,6 +621,8 @@ export function AdminEmployeesPage() {
     void load()
   }, [load])
 
+  useEffect(() => subscribeWorkforceAvailabilityRefresh(() => void load()), [load])
+
   useEffect(() => {
     setVisibleCount(LIST_PAGE_SIZE)
   }, [searchQuery, roleFilter, statusFilter, workforceView])
@@ -627,7 +658,7 @@ export function AdminEmployeesPage() {
     return items.filter((row) => {
       if (roleFilter && String(row.role ?? '').toLowerCase() !== roleFilter) return false
       if (!isDeletedView) {
-        const displayStatus = getEmployeeDisplayStatus(row.availability)
+        const displayStatus = getEmployeeDisplayStatus(row)
         if (statusFilter === 'online' && displayStatus !== 'online') return false
         if (statusFilter === 'offline' && displayStatus !== 'offline') return false
         if (statusFilter === 'busy' && displayStatus !== 'busy') return false
@@ -731,6 +762,37 @@ export function AdminEmployeesPage() {
       setError(getFetchErrorMessage(e))
     } finally {
       setRestoreBusyPhone(null)
+    }
+  }
+
+  async function handleSetAvailability(row, next) {
+    if (!row?.phone || availabilityBusyPhone) return
+    setAvailabilityBusyPhone(row.phone)
+    setError(null)
+    try {
+      const updated = await adminService.setEmployeeAvailability(row.phone, next)
+      if (updated) {
+        setItems((prev) =>
+          prev.map((e) =>
+            e.phone === row.phone
+              ? {
+                  ...e,
+                  availability: updated.availability,
+                  availabilityStatus: updated.availabilityStatus,
+                }
+              : e,
+          ),
+        )
+        setSuccessMessage(
+          `${row.name || row.phone} is now ${next === 'online' ? 'online' : 'offline'}.`,
+        )
+      } else {
+        await load()
+      }
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
+    } finally {
+      setAvailabilityBusyPhone(null)
     }
   }
 
@@ -1059,7 +1121,7 @@ export function AdminEmployeesPage() {
                               <RoleBadge role={row.role} />
                             </td>
                             <td className={TABLE_CELL}>
-                              <AvailabilityBadge availability={row.availability} />
+                              <AvailabilityBadge row={row} />
                             </td>
                             <td className={`${TABLE_CELL_META} whitespace-nowrap`}>
                               {formatDateTime(row.lastLoginAt)}
@@ -1068,7 +1130,13 @@ export function AdminEmployeesPage() {
                               {formatDateTime(row.lastLogoutAt)}
                             </td>
                             <td className={`${TABLE_CELL} text-right`}>
-                              <EmployeeRowActions row={row} onEdit={startEdit} onDelete={openDeleteConfirm} />
+                              <EmployeeRowActions
+                                row={row}
+                                onEdit={startEdit}
+                                onDelete={openDeleteConfirm}
+                                onSetAvailability={handleSetAvailability}
+                                availabilityBusy={availabilityBusyPhone === row.phone}
+                              />
                             </td>
                           </>
                         )}

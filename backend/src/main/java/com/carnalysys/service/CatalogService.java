@@ -66,7 +66,7 @@ public class CatalogService {
       String sort,
       int page,
       int pageSize) {
-    return listProductsPage(type, category, search, carModel, null, sort, page, pageSize);
+    return listProductsPage(type, category, search, carModel, null, null, sort, page, pageSize);
   }
 
   @Transactional(readOnly = true)
@@ -76,6 +76,20 @@ public class CatalogService {
       String search,
       String carModel,
       String carId,
+      String sort,
+      int page,
+      int pageSize) {
+    return listProductsPage(type, category, search, carModel, carId, null, sort, page, pageSize);
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listProductsPage(
+      String type,
+      String category,
+      String search,
+      String carModel,
+      String carId,
+      String partBrand,
       String sort,
       int page,
       int pageSize) {
@@ -89,7 +103,7 @@ public class CatalogService {
                 : Sort.by("id").ascending();
     Pageable pageable = PageRequest.of(p, size, s);
     Specification<Product> spec =
-        CatalogProductSpecifications.build(type, category, search, carModel, carId);
+        CatalogProductSpecifications.build(type, category, search, carModel, carId, partBrand);
     Page<Product> result = productRepository.findAll(spec, pageable);
     List<Map<String, Object>> items = presentAll(result.getContent());
     Map<String, Object> out = new LinkedHashMap<>();
@@ -160,6 +174,28 @@ public class CatalogService {
     return categoryRepository.findAllActive().stream()
         .sorted(Comparator.comparingInt(c -> c.getDisplayOrder()))
         .map(c -> Map.of("id", c.getSlug(), "name", c.getName()))
+        .toList();
+  }
+
+  /** Distinct OEM/OES part brand labels from published parts (metadata brand → oem → oes → supplier). */
+  @Transactional(readOnly = true)
+  public List<Map<String, String>> listPartBrands() {
+    return productRepository.findDistinctPublishedPartBrandLabels().stream()
+        .filter(b -> b != null && !b.isBlank())
+        .sorted(String.CASE_INSENSITIVE_ORDER)
+        .map(
+            label -> {
+              String trimmed = label.trim().replaceAll("\\s+", " ");
+              String id =
+                  trimmed
+                      .toLowerCase(java.util.Locale.ROOT)
+                      .replaceAll("[^a-z0-9]+", "-")
+                      .replaceAll("^-|-$", "");
+              if (id.isEmpty()) {
+                id = "brand";
+              }
+              return Map.of("id", id, "name", trimmed);
+            })
         .toList();
   }
 

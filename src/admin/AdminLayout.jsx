@@ -13,6 +13,38 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/useAuth.js'
 
+function DeliveryBottomNav() {
+  const tabs = [
+    { to: '/admin', end: true, label: 'Home', icon: LayoutDashboard },
+    { to: '/admin/deliveries', label: 'Deliveries', icon: ShoppingBag },
+  ]
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_24px_rgba(15,23,42,0.08)] backdrop-blur-md md:hidden"
+      aria-label="Delivery navigation"
+    >
+      <div className="mx-auto flex max-w-lg justify-around gap-1">
+        {tabs.map(({ to, end, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              [
+                'flex min-h-[52px] min-w-[7rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-semibold uppercase tracking-wide',
+                isActive ? 'bg-teal-50 text-teal-800' : 'text-slate-500',
+              ].join(' ')
+            }
+          >
+            <Icon className="h-5 w-5" strokeWidth={2} aria-hidden />
+            {label}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
 function navByRole(role) {
   const base = [
     {
@@ -31,7 +63,11 @@ function navByRole(role) {
     base.push({ to: '/admin/users', label: 'Users', icon: Users })
     base.push({ to: '/admin/employees', label: 'Employees', icon: UserCog })
   }
-  base.push({ to: '/admin/orders', label: role === 'delivery' ? 'My deliveries' : 'Orders', icon: ShoppingBag })
+  if (role === 'delivery') {
+    base.push({ to: '/admin/deliveries', label: 'My deliveries', icon: ShoppingBag })
+  } else {
+    base.push({ to: '/admin/orders', label: 'Orders', icon: ShoppingBag })
+  }
   return base
 }
 
@@ -68,10 +104,12 @@ export function AdminLayout() {
   const role = ['super_admin', 'sales', 'delivery'].includes(sessionRole) ? sessionRole : 'super_admin'
   const sidebarSectionLabel = role === 'delivery' ? 'DELIVERY' : 'ADMIN'
 
+  const isDelivery = role === 'delivery'
+
   return (
-    <div className="pb-16 pt-4 text-fog md:pt-6">
+    <div className={`pt-4 text-fog md:pt-6 ${isDelivery ? 'pb-24 md:pb-16' : 'pb-16'}`}>
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 md:flex-row md:gap-8 md:px-6 lg:px-10">
-        <div className="md:hidden">
+        <div className={isDelivery ? 'hidden' : 'md:hidden'}>
           <button
             type="button"
             onClick={() => setMobileOpen((o) => !o)}
@@ -106,6 +144,7 @@ export function AdminLayout() {
           <Outlet />
         </div>
       </div>
+      {isDelivery ? <DeliveryBottomNav /> : null}
     </div>
   )
 }

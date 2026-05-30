@@ -18,15 +18,26 @@ export async function fetchVehicleModels(brandId) {
   return data.items
 }
 
-export async function fetchVehicleYears() {
+/** @param {{ brandId?: string, modelId?: string }} [params] */
+export async function fetchVehicleYears(params = {}) {
   requireApi()
-  const { data } = await apiGet('/vehicle/years')
+  const q = new URLSearchParams()
+  if (params.brandId) q.set('brandId', params.brandId)
+  if (params.modelId) q.set('modelId', params.modelId)
+  const suffix = q.toString() ? `?${q}` : ''
+  const { data } = await apiGet(`/vehicle/years${suffix}`)
   return data.items
 }
 
-export async function fetchVehicleVariants() {
+/** @param {{ brandId?: string, modelId?: string, year?: string }} [params] */
+export async function fetchVehicleVariants(params = {}) {
   requireApi()
-  const { data } = await apiGet('/vehicle/variants')
+  const q = new URLSearchParams()
+  if (params.brandId) q.set('brandId', params.brandId)
+  if (params.modelId) q.set('modelId', params.modelId)
+  if (params.year) q.set('year', params.year)
+  const suffix = q.toString() ? `?${q}` : ''
+  const { data } = await apiGet(`/vehicle/variants${suffix}`)
   return data.items
 }
 

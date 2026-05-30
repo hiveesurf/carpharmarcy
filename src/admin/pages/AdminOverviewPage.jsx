@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Users, ShoppingBag, IndianRupee, TrendingUp, Package, Clock, Radio, AlertTriangle } from 'lucide-react'
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { useAuth } from '../../context/useAuth.js'
+import { employeeAvailabilityShortLabel, normalizeEmployeeAvailability } from '../../lib/employeeAvailability.js'
+import { subscribeWorkforceAvailabilityRefresh } from '../../lib/workforceEvents.js'
 
 function formatInr(n) {
   if (n == null || Number.isNaN(Number(n))) return '—'
@@ -124,17 +126,6 @@ function formatTs(iso) {
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString()
 }
 
-/** Backend availability_status → dashboard label (uppercase; legacy `free` treated as online). */
-function availabilityLabel(raw) {
-  const s = String(raw ?? '')
-    .trim()
-    .toLowerCase()
-  if (s === 'online' || s === 'free') return 'ONLINE'
-  if (s === 'busy') return 'BUSY'
-  if (s === 'offline') return 'OFFLINE'
-  return s ? s.toUpperCase() : '—'
-}
-
 export function AdminOverviewPage() {
   const { sessionRole } = useAuth()
   const isSales = sessionRole === 'sales'
@@ -179,30 +170,49 @@ export function AdminOverviewPage() {
     }
   }, [isDelivery])
 
-  useEffect(() => {
+  const refreshDeliverySummary = useCallback(async () => {
     if (!isDelivery) return
-    const refresh = () => {
-      void (async () => {
-        try {
-          const d = await adminService.deliveryPartnerSummary()
-          setDeliverySummary(d && typeof d === 'object' ? d : {})
-        } catch {
-          /* keep prior summary; orders page will show API errors */
-        }
-      })()
+    try {
+      const d = await adminService.deliveryPartnerSummary()
+      setDeliverySummary(d && typeof d === 'object' ? d : {})
+      setError(null)
+    } catch (e) {
+      setError(getFetchErrorMessage(e))
     }
-    window.addEventListener('carnalysys:delivery-stats-refresh', refresh)
-    return () => window.removeEventListener('carnalysys:delivery-stats-refresh', refresh)
   }, [isDelivery])
+
+  useEffect(() => {
+    if (!isDelivery) return undefined
+    const onStats = () => {
+      void refreshDeliverySummary()
+    }
+    window.addEventListener('carnalysys:delivery-stats-refresh', onStats)
+    const unsubWorkforce = subscribeWorkforceAvailabilityRefresh(() => {
+      void refreshDeliverySummary()
+    })
+    return () => {
+      window.removeEventListener('carnalysys:delivery-stats-refresh', onStats)
+      unsubWorkforce()
+    }
+  }, [isDelivery, refreshDeliverySummary])
 
   async function setDeliveryAvailability(next) {
     if (!isDelivery || (next !== 'online' && next !== 'offline')) return
     setAvailabilitySaving(next)
     setError(null)
     try {
-      await adminService.setMyDeliveryAvailability(next)
-      const d = await adminService.deliveryPartnerSummary()
-      setDeliverySummary(d && typeof d === 'object' ? d : {})
+      const employee = await adminService.setMyDeliveryAvailability(next)
+      if (employee && typeof employee === 'object') {
+        setDeliverySummary((prev) => ({
+          ...(prev && typeof prev === 'object' ? prev : {}),
+          availability: employee.availability,
+          availabilityStatus: employee.availabilityStatus,
+          lastLoginAt: employee.lastLoginAt ?? prev?.lastLoginAt,
+          lastLogoutAt: employee.lastLogoutAt ?? prev?.lastLogoutAt,
+        }))
+      } else {
+        await refreshDeliverySummary()
+      }
       window.dispatchEvent(new Event('carnalysys:delivery-stats-refresh'))
     } catch (e) {
       setError(getFetchErrorMessage(e))
@@ -213,7 +223,7 @@ export function AdminOverviewPage() {
 
   if (isDelivery) {
     return (
-      <div className="space-y-8">
+      <div className="-mx-4 space-y-6 px-4 md:mx-0 md:px-0">
         <div>
           <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-fog md:text-3xl">
             Dashboard
@@ -239,7 +249,7 @@ export function AdminOverviewPage() {
                     <p className="mt-2 font-display text-2xl font-bold tracking-tight text-fog">
                       Current status:{' '}
                       <span className="text-accent">
-                        {availabilityLabel(deliverySummary.availability)}
+                        {employeeAvailabilityShortLabel(deliverySummary.availability)}
                       </span>
                     </p>
                     <p className="mt-1 max-w-xl text-xs text-mist">
@@ -252,9 +262,7 @@ export function AdminOverviewPage() {
                     type="button"
                     disabled={
                       availabilitySaving !== null ||
-                      String(deliverySummary.availability ?? '')
-                        .trim()
-                        .toLowerCase() === 'online'
+                      normalizeEmployeeAvailability(deliverySummary.availability) === 'online'
                     }
                     onClick={() => void setDeliveryAvailability('online')}
                     className="rounded-xl bg-accent px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
@@ -265,9 +273,7 @@ export function AdminOverviewPage() {
                     type="button"
                     disabled={
                       availabilitySaving !== null ||
-                      String(deliverySummary.availability ?? '')
-                        .trim()
-                        .toLowerCase() === 'offline'
+                      normalizeEmployeeAvailability(deliverySummary.availability) === 'offline'
                     }
                     onClick={() => void setDeliveryAvailability('offline')}
                     className="rounded-xl border border-steel/80 px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-mist hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"

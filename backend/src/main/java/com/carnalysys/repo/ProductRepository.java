@@ -31,4 +31,28 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
   List<Product> findBySkuInAndDeletedAtIsNull(Collection<String> skus);
 
   long countByDeletedAtIsNullAndStockQuantityLessThanEqual(int stockQuantity);
+
+  @Query(
+      value =
+          """
+          SELECT DISTINCT trim(coalesce(
+            nullif(trim(metadata->>'brand'), ''),
+            nullif(trim(metadata->>'oem'), ''),
+            nullif(trim(metadata->>'oes'), ''),
+            nullif(trim(metadata->>'supplierName'), '')
+          )) AS brand_label
+          FROM products
+          WHERE published = true
+            AND deleted_at IS NULL
+            AND type = 'part'
+            AND coalesce(
+              nullif(trim(metadata->>'brand'), ''),
+              nullif(trim(metadata->>'oem'), ''),
+              nullif(trim(metadata->>'oes'), ''),
+              nullif(trim(metadata->>'supplierName'), '')
+            ) IS NOT NULL
+          ORDER BY brand_label
+          """,
+      nativeQuery = true)
+  List<String> findDistinctPublishedPartBrandLabels();
 }

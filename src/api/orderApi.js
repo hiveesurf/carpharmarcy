@@ -15,3 +15,7 @@ export function getOrders({ page = 0, size = 3, phone } = {}) {
 export function getOrderById(id) {
   return apiGet(`/orders/${encodeURIComponent(id)}`)
 }
+
+export function getDeliveryOtp(orderId) {
+  return apiGet(`/orders/${encodeURIComponent(orderId)}/delivery-otp`)
+}

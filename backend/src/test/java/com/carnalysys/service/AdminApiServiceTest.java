@@ -74,6 +74,7 @@ class AdminApiServiceTest {
   @Mock private UserAvatarService userAvatarService;
   @Mock private NotificationService notificationService;
   @Mock private ProductExcelParser productExcelParser;
+  @Mock private DeliveryWorkflowService deliveryWorkflowService;
 
   @InjectMocks private AdminApiService adminApiService;
 
@@ -230,7 +231,7 @@ class AdminApiServiceTest {
   }
 
   @Test
-  void patchOrderStatusUsesDeliveryPathWhenAdminRoleIsDelivery() {
+  void patchOrderStatusRejectsDeliveryRoleUseWorkflowEndpoints() {
     UUID uid = UUID.fromString("550e8400-e29b-41d4-a716-446655440001");
     SecurityContextHolder
         .getContext()
@@ -248,13 +249,16 @@ class AdminApiServiceTest {
     delivery.setPhoneE164("8888888888");
     delivery.setRole("delivery");
     when(adminUserRepository.findByPhoneE164("8888888888")).thenReturn(Optional.of(delivery));
-    when(orderService.patchStatusAsDeliveryPartner("ord_1", "delivered", "dp@test.dev"))
-        .thenReturn(Map.of("order", Map.of("id", "ord_1", "status", "delivered")));
 
-    Map<String, Object> result = adminApiService.patchOrderStatus("ord_1", "delivered");
-
-    assertThat(result).containsKey("order");
-    verify(orderService).patchStatusAsDeliveryPartner(eq("ord_1"), eq("delivered"), eq("dp@test.dev"));
+    assertThatThrownBy(() -> adminApiService.patchOrderStatus("ord_1", "delivered"))
+        .isInstanceOf(ApiException.class)
+        .satisfies(
+            ex -> {
+              ApiException ae = (ApiException) ex;
+              assertThat(ae.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(ae.code()).isEqualTo("VALIDATION_ERROR");
+            });
+    verify(orderService, never()).patchStatusAsDeliveryPartner(any(), any(), any());
     verify(orderService, never()).patchStatusAdmin(any(), any());
   }
 

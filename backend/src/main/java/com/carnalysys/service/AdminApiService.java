@@ -36,6 +36,7 @@ import com.carnalysys.repo.UserProfileRepository;
 import com.carnalysys.repo.UserRepository;
 import com.carnalysys.repo.OrderLineRepository;
 import com.carnalysys.util.CarIdentityNormalizer;
+import com.carnalysys.util.EmployeeAvailability;
 import com.carnalysys.util.SlugUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -123,6 +124,7 @@ public class AdminApiService {
   private final NotificationService notificationService;
   private final ProductExcelParser productExcelParser;
   private final LowStockAlertService lowStockAlertService;
+  private final DeliveryWorkflowService deliveryWorkflowService;
 
   public AdminApiService(
       AdminUserRepository adminUserRepository,
@@ -149,7 +151,8 @@ public class AdminApiService {
       UserAvatarService userAvatarService,
       NotificationService notificationService,
       ProductExcelParser productExcelParser,
-      LowStockAlertService lowStockAlertService) {
+      LowStockAlertService lowStockAlertService,
+      DeliveryWorkflowService deliveryWorkflowService) {
     this.adminUserRepository = adminUserRepository;
     this.userRepository = userRepository;
     this.userProfileRepository = userProfileRepository;
@@ -175,6 +178,7 @@ public class AdminApiService {
     this.notificationService = notificationService;
     this.productExcelParser = productExcelParser;
     this.lowStockAlertService = lowStockAlertService;
+    this.deliveryWorkflowService = deliveryWorkflowService;
   }
 
   @Transactional(readOnly = true)
@@ -1096,11 +1100,14 @@ public class AdminApiService {
 
   @Transactional(readOnly = true)
   public Map<String, Object> listOrdersAdminPage(String phone, int page, int size) {
+    AdminUser admin = resolveCurrentAdminUser();
+    if ("delivery".equalsIgnoreCase(admin.getRole())) {
+      return listOrdersForDeliveryPartner(admin.getEmail(), phone, page, size);
+    }
     int safePage = Math.max(0, page);
     int safeSize = Math.max(1, Math.min(50, size));
     if (phone != null && !phone.isBlank()) {
-      var rows = orderService.listAllAdminByPhonePage(phone, safePage, safeSize);
-      return rows;
+      return orderService.listAllAdminByPhonePage(phone, safePage, safeSize);
     }
     var pageResult = orderRepository.findAllByOrderByPlacedAtDesc(PageRequest.of(safePage, safeSize));
     List<Map<String, Object>> rows =
@@ -1118,13 +1125,117 @@ public class AdminApiService {
         "nextPage", pageResult.hasNext() ? safePage + 1 : safePage);
   }
 
+  private Map<String, Object> listOrdersForDeliveryPartner(
+      String deliveryEmail, String phone, int page, int size) {
+    int safePage = Math.max(0, page);
+    int safeSize = Math.max(1, Math.min(50, size));
+    Pageable pageable = PageRequest.of(safePage, safeSize);
+    Page<OrderEntity> pageResult;
+    if (phone != null && !phone.isBlank()) {
+      String normalized = orderService.normalizePhoneForAdminListing(phone);
+      pageResult =
+          orderRepository.findByAssignedDeliveryAdminEmailIgnoreCaseAndUser_PhoneE164OrderByPlacedAtDesc(
+              deliveryEmail, normalized, pageable);
+    } else {
+      pageResult =
+          orderRepository.findByAssignedDeliveryAdminEmailIgnoreCaseOrderByPlacedAtDesc(
+              deliveryEmail, pageable);
+    }
+    List<Map<String, Object>> rows =
+        pageResult.getContent().stream()
+            .map(
+                o ->
+                    orderService.toDeliveryPartnerOrderMap(
+                        o, orderLineRepository.findByOrder_Id(o.getId())))
+            .toList();
+    return Map.of(
+        "items", rows,
+        "page", safePage,
+        "size", safeSize,
+        "hasMore", pageResult.hasNext(),
+        "nextPage", pageResult.hasNext() ? safePage + 1 : safePage);
+  }
+
   @Transactional
   public Map<String, Object> patchOrderStatus(String id, String status) {
     AdminUser admin = resolveCurrentAdminUser();
     if ("delivery".equalsIgnoreCase(admin.getRole())) {
-      return orderService.patchStatusAsDeliveryPartner(id, status, admin.getEmail());
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          "Use delivery workflow endpoints to update assigned orders");
     }
     return orderService.patchStatusAdmin(id, status);
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryAcceptAssignment(String orderId) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.acceptAssignment(orderId, admin.getEmail());
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryMarkOutForDelivery(String orderId) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.markOutForDelivery(orderId, admin.getEmail());
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryResendOtp(String orderId) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.resendDeliveryOtp(orderId, admin.getEmail());
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryVerifyOtp(String orderId, String otp) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.verifyDeliveryOtp(orderId, admin.getEmail(), otp);
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryUploadProof(String orderId, String proofPhotoDataUrl) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.uploadDeliveryProof(orderId, admin.getEmail(), proofPhotoDataUrl);
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryMarkDelivered(String orderId) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.markDelivered(orderId, admin.getEmail());
+  }
+
+  @Transactional(readOnly = true)
+  public org.springframework.http.ResponseEntity<byte[]> getOrderDeliveryProof(String orderId) {
+    requireAdminAccess();
+    String id = orderId == null ? "" : orderId.trim();
+    if (id.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "orderId required");
+    }
+    OrderEntity order =
+        orderRepository
+            .findById(id)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
+    AdminUser admin = resolveCurrentAdminUser();
+    if ("delivery".equalsIgnoreCase(admin.getRole())) {
+      String assigned = order.getAssignedDeliveryAdminEmail();
+      if (assigned == null
+          || !assigned.trim().equalsIgnoreCase(admin.getEmail().trim())) {
+        throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Order is not assigned to you");
+      }
+    }
+    byte[] body = deliveryWorkflowService.readDeliveryProofForOrder(order);
+    String mediaType = deliveryWorkflowService.deliveryProofMediaType(order);
+    return org.springframework.http.ResponseEntity.ok()
+        .header(
+            org.springframework.http.HttpHeaders.CONTENT_TYPE,
+            mediaType)
+        .body(body);
+  }
+
+  @Transactional
+  public Map<String, Object> deliveryMarkFailed(String orderId, String reason, String note) {
+    AdminUser admin = resolveCurrentDeliveryAdminUser();
+    return deliveryWorkflowService.markDeliveryFailed(orderId, admin.getEmail(), reason, note);
   }
 
   @Transactional
@@ -1149,12 +1260,14 @@ public class AdminApiService {
             .findById(orderId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Order not found"));
     boolean alreadyAssignedToOrder = email.equalsIgnoreCase(order.getAssignedDeliveryAdminEmail());
-    if (!alreadyAssignedToOrder && !"online".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
+    if (!alreadyAssignedToOrder
+        && !EmployeeAvailability.isStoredOnline(delivery.getAvailabilityStatus())) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Delivery admin is not online");
     }
     order.setAssignedDeliveryAdminEmail(email);
     order.setAssignedDeliveryAt(Instant.now());
     orderRepository.save(order);
+    deliveryWorkflowService.initializeAssignedStage(order);
     if (!"busy".equalsIgnoreCase(delivery.getAvailabilityStatus())) {
       delivery.setAvailabilityStatus("busy");
       adminUserRepository.save(delivery);
@@ -1178,9 +1291,8 @@ public class AdminApiService {
             admin.getEmail(), OrderStatus.delivered);
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("deliveriesDone", deliveriesDone);
-    m.put(
-        "availability",
-        admin.getAvailabilityStatus() != null ? admin.getAvailabilityStatus() : "offline");
+    m.put("availability", effectiveAvailabilityForAdmin(admin));
+    m.put("availabilityStatus", admin.getAvailabilityStatus());
     m.put("lastLoginAt", admin.getLastLoginAt() != null ? admin.getLastLoginAt().toString() : null);
     m.put("lastLogoutAt", admin.getLastLogoutAt() != null ? admin.getLastLogoutAt().toString() : null);
     return m;
@@ -1267,7 +1379,7 @@ public class AdminApiService {
 
   private static final List<String> WORKFORCE_ROLES = List.of("sales", "delivery");
 
-  @Transactional(readOnly = true)
+  @Transactional
   public List<Map<String, Object>> listEmployees(Boolean deleted) {
     requireSuperAdmin();
     Sort sort = Sort.by("phoneE164").ascending();
@@ -1275,7 +1387,10 @@ public class AdminApiService {
         Boolean.TRUE.equals(deleted)
             ? adminUserRepository.findByRoleInAndDeletedAtIsNotNull(WORKFORCE_ROLES, sort)
             : adminUserRepository.findByRoleInAndDeletedAtIsNull(WORKFORCE_ROLES, sort);
-    return rows.stream().map(this::toEmployeeMap).toList();
+    return rows.stream()
+        .peek(this::reconcileStoredDeliveryAvailability)
+        .map(this::toEmployeeMap)
+        .toList();
   }
 
   @Transactional(readOnly = true)
@@ -1299,7 +1414,7 @@ public class AdminApiService {
     return summary;
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public Map<String, Object> listEmployeesPage(int page, int size, Boolean deleted) {
     requireSuperAdmin();
     Pageable pageable =
@@ -1309,14 +1424,20 @@ public class AdminApiService {
         Boolean.TRUE.equals(deleted)
             ? adminUserRepository.findByRoleInAndDeletedAtIsNotNull(WORKFORCE_ROLES, pageable)
             : adminUserRepository.findByRoleInAndDeletedAtIsNull(WORKFORCE_ROLES, pageable);
-    List<Map<String, Object>> items = result.getContent().stream().map(this::toEmployeeMap).toList();
+    List<Map<String, Object>> items =
+        result.getContent().stream()
+            .peek(this::reconcileStoredDeliveryAvailability)
+            .map(this::toEmployeeMap)
+            .toList();
     return pagedResponse(items, result.getNumber(), result.getSize(), result.hasNext());
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public Map<String, Object> getEmployee(String phone) {
     requireSuperAdmin();
-    return Map.of("employee", toEmployeeMap(requireWorkforceEmployee(phone)));
+    AdminUser employee = requireWorkforceEmployee(phone);
+    reconcileStoredDeliveryAvailability(employee);
+    return Map.of("employee", toEmployeeMap(employee));
   }
 
   @Transactional
@@ -1824,6 +1945,46 @@ public class AdminApiService {
     productChangeAuditRepository.save(a);
   }
 
+  /** Aligns stored busy/online with active assigned orders; never overrides admin/delivery offline. */
+  private void reconcileStoredDeliveryAvailability(AdminUser admin) {
+    if (admin == null || !"delivery".equalsIgnoreCase(admin.getRole())) {
+      return;
+    }
+    String stored =
+        admin.getAvailabilityStatus() == null || admin.getAvailabilityStatus().isBlank()
+            ? "offline"
+            : admin.getAvailabilityStatus().trim().toLowerCase();
+    if ("offline".equals(stored)) {
+      return;
+    }
+    boolean hasActive =
+        admin.getEmail() != null
+            && !admin.getEmail().isBlank()
+            && hasActiveAssignedDeliveryOrders(admin.getEmail());
+    String target = hasActive ? "busy" : "online";
+    if (!target.equalsIgnoreCase(stored)) {
+      admin.setAvailabilityStatus(target);
+      adminUserRepository.save(admin);
+    }
+  }
+
+  private String effectiveAvailabilityForAdmin(AdminUser admin) {
+    if (admin == null) {
+      return "offline";
+    }
+    boolean hasActive =
+        "delivery".equalsIgnoreCase(admin.getRole())
+            && admin.getEmail() != null
+            && !admin.getEmail().isBlank()
+            && hasActiveAssignedDeliveryOrders(admin.getEmail());
+    return EmployeeAvailability.effectiveStatus(admin.getAvailabilityStatus(), hasActive);
+  }
+
+  private boolean hasActiveAssignedDeliveryOrders(String deliveryEmail) {
+    return orderRepository.findByAssignedDeliveryAdminEmailOrderByPlacedAtDesc(deliveryEmail).stream()
+        .anyMatch(o -> EmployeeAvailability.isActiveDeliveryOrderStatus(o.getStatus()));
+  }
+
   private Map<String, Object> toEmployeeMap(AdminUser a) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("id", a.getId().toString());
@@ -1833,7 +1994,8 @@ public class AdminApiService {
     m.put("name", a.getFullName());
     m.put("photoUrl", a.getPhotoUrl());
     m.put("status", a.getOnboardingStatus());
-    m.put("availability", a.getAvailabilityStatus());
+    m.put("availability", effectiveAvailabilityForAdmin(a));
+    m.put("availabilityStatus", a.getAvailabilityStatus());
     m.put("lastLoginAt", a.getLastLoginAt() != null ? a.getLastLoginAt().toString() : null);
     m.put("lastLogoutAt", a.getLastLogoutAt() != null ? a.getLastLogoutAt().toString() : null);
     m.put("firstLoginAt", a.getFirstLoginAt() != null ? a.getFirstLoginAt().toString() : null);

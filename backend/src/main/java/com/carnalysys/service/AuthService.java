@@ -73,6 +73,10 @@ public class AuthService {
     this.environment = environment;
   }
 
+  /**
+   * @deprecated Legacy OTP endpoint retained for rollback compatibility while Firebase exchange is rolled out.
+   */
+  @Deprecated
   @Transactional
   public Map<String, Object> sendOtp(String phoneDigits) {
     String phoneKey = normalizePhoneKey(phoneDigits);
@@ -109,7 +113,6 @@ public class AuthService {
         whatsappSent = true;
       } catch (RuntimeException ex) {
         if (isLocalDevProfile()) {
-          // LOCAL DEV ONLY - remove before production
           whatsappSent = false;
         } else {
           throw ex;
@@ -121,12 +124,17 @@ public class AuthService {
     data.put("sent", true);
     data.put("ttlSeconds", appProperties.otp().ttlSeconds());
     if (!whatsappEnabled || !whatsappSent || isLocalDevProfile()) {
-      // LOCAL DEV ONLY - remove before production
       data.put("demoOtp", otp);
     }
+    data.put("deprecated", true);
+    data.put("migration", "Use Firebase phone auth and /auth/firebase/exchange");
     return data;
   }
 
+  /**
+   * @deprecated Legacy OTP endpoint retained for rollback compatibility while Firebase exchange is rolled out.
+   */
+  @Deprecated
   @Transactional
   public VerifyPayload verifyOtp(String phoneDigits, String otp) {
     String phoneKey = normalizePhoneKey(phoneDigits);
@@ -146,6 +154,15 @@ public class AuthService {
     }
     row.setConsumedAt(Instant.now());
     otpChallengeRepository.save(row);
+    return loginWithVerifiedPhone(phoneKey);
+  }
+
+  @Transactional
+  public VerifyPayload loginWithVerifiedPhone(String phoneRaw) {
+    String phoneKey = normalizePhoneKey(phoneRaw);
+    if (phoneKey.length() != 10) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid phone");
+    }
 
     UserEntity user =
         userRepository
@@ -187,8 +204,8 @@ public class AuthService {
         "Login successful",
         "You signed in successfully.",
         "auth",
-        row.getId().toString(),
-        Map.of("phone", phoneKey));
+        user.getId().toString(),
+        Map.of("phone", phoneKey, "provider", "firebase"));
     return new VerifyPayload(data, refreshRaw);
   }
 
@@ -334,9 +351,7 @@ public class AuthService {
       }
       adminUserRepository.save(employee);
     } else {
-      if (employee.getLastLoginAt() == null) {
-        employee.setLastLoginAt(Instant.now());
-      }
+      employee.setLastLoginAt(Instant.now());
       if ("delivery".equalsIgnoreCase(employee.getRole())) {
         employee.setAvailabilityStatus("online");
       }

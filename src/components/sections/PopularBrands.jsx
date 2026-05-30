@@ -5,7 +5,8 @@ import { ChevronRight } from 'lucide-react'
 import { staggerContainer, staggerItem, viewportOnce } from '../../lib/motion'
 import { publicUrl } from '../../lib/publicUrl'
 import { apiV1Base } from '../../api/client.js'
-import { fetchVehicleBrands } from '../../services/fitmentService.js'
+import { fetchPartBrands } from '../../services/partBrandService.js'
+import { catalogHref } from '../../lib/partBrand.js'
 
 /** Rotating gradient tones — same palette family as the original static section */
 const TONE_CLASSES = [
@@ -35,9 +36,9 @@ function BrandTile({ id, name, tone }) {
   return (
     <motion.li variants={staggerItem} className="list-none">
       <Link
-        to={`/catalog?brandId=${encodeURIComponent(id)}`}
+        to={catalogHref({ partBrand: name })}
         className={`ad-store-card flex min-h-[7.5rem] flex-col items-center justify-center gap-3 rounded-xl border border-steel/70 bg-gradient-to-br px-3 py-4 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.1)] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(255,107,53,0.2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-[8.5rem] sm:py-5 ${tone}`}
-        aria-label={`Shop parts for ${name}`}
+        aria-label={`Shop parts by ${name}`}
       >
         <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center sm:min-h-[3rem]">
           {logoOk ? (
@@ -92,9 +93,9 @@ export function PopularBrands() {
     }
     let cancelled = false
     setLoading(true)
-    fetchVehicleBrands()
+    fetchPartBrands()
       .then((rows) => {
-        if (!cancelled) setBrands(Array.isArray(rows) ? rows : [])
+        if (!cancelled) setBrands(Array.isArray(rows) ? rows.slice(0, 8) : [])
       })
       .catch(() => {
         if (!cancelled) setBrands([])
@@ -157,7 +158,7 @@ export function PopularBrands() {
           >
             {brands.map((b, index) => (
               <BrandTile
-                key={b.id}
+                key={b.id || b.name}
                 id={b.id}
                 name={b.name}
                 tone={TONE_CLASSES[index % TONE_CLASSES.length]}

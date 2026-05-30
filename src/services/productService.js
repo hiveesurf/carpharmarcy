@@ -19,6 +19,7 @@ function cacheKey(params) {
     sort: params.sort ?? null,
     carModel: params.carModel ?? null,
     carId: params.carId ?? null,
+    partBrand: params.partBrand ?? null,
     page: params.page ?? 0,
     pageSize: params.pageSize ?? 24,
   })

@@ -78,6 +78,49 @@ public class OrderEntity {
   @Column(name = "assigned_delivery_at")
   private Instant assignedDeliveryAt;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "delivery_stage")
+  private DeliveryStage deliveryStage;
+
+  @Column(name = "delivery_accepted_at")
+  private Instant deliveryAcceptedAt;
+
+  @Column(name = "delivery_out_for_delivery_at")
+  private Instant deliveryOutForDeliveryAt;
+
+  @Column(name = "delivery_delivered_at")
+  private Instant deliveryDeliveredAt;
+
+  @Column(name = "delivery_failed_at")
+  private Instant deliveryFailedAt;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "delivery_failed_reason")
+  private DeliveryFailedReason deliveryFailedReason;
+
+  @Column(name = "delivery_failed_reason_note")
+  private String deliveryFailedReasonNote;
+
+  @Column(name = "delivery_otp_hash")
+  private String deliveryOtpHash;
+
+  /** Used with HMAC to derive the 6-digit OTP; cleared after verification. */
+  @Column(name = "delivery_otp_nonce")
+  private String deliveryOtpNonce;
+
+  @Column(name = "delivery_otp_expires_at")
+  private Instant deliveryOtpExpiresAt;
+
+  @Column(name = "delivery_otp_verified_at")
+  private Instant deliveryOtpVerifiedAt;
+
+  /** Last time a delivery OTP was issued (start delivery or resend). */
+  @Column(name = "delivery_otp_issued_at")
+  private Instant deliveryOtpIssuedAt;
+
+  @Column(name = "proof_photo_url")
+  private String proofPhotoUrl;
+
   public String getId() {
     return id;
   }
@@ -220,5 +263,109 @@ public class OrderEntity {
 
   public void setAssignedDeliveryAt(Instant assignedDeliveryAt) {
     this.assignedDeliveryAt = assignedDeliveryAt;
+  }
+
+  public DeliveryStage getDeliveryStage() {
+    return deliveryStage;
+  }
+
+  public void setDeliveryStage(DeliveryStage deliveryStage) {
+    this.deliveryStage = deliveryStage;
+  }
+
+  public Instant getDeliveryAcceptedAt() {
+    return deliveryAcceptedAt;
+  }
+
+  public void setDeliveryAcceptedAt(Instant deliveryAcceptedAt) {
+    this.deliveryAcceptedAt = deliveryAcceptedAt;
+  }
+
+  public Instant getDeliveryOutForDeliveryAt() {
+    return deliveryOutForDeliveryAt;
+  }
+
+  public void setDeliveryOutForDeliveryAt(Instant deliveryOutForDeliveryAt) {
+    this.deliveryOutForDeliveryAt = deliveryOutForDeliveryAt;
+  }
+
+  public Instant getDeliveryDeliveredAt() {
+    return deliveryDeliveredAt;
+  }
+
+  public void setDeliveryDeliveredAt(Instant deliveryDeliveredAt) {
+    this.deliveryDeliveredAt = deliveryDeliveredAt;
+  }
+
+  public Instant getDeliveryFailedAt() {
+    return deliveryFailedAt;
+  }
+
+  public void setDeliveryFailedAt(Instant deliveryFailedAt) {
+    this.deliveryFailedAt = deliveryFailedAt;
+  }
+
+  public DeliveryFailedReason getDeliveryFailedReason() {
+    return deliveryFailedReason;
+  }
+
+  public void setDeliveryFailedReason(DeliveryFailedReason deliveryFailedReason) {
+    this.deliveryFailedReason = deliveryFailedReason;
+  }
+
+  public String getDeliveryFailedReasonNote() {
+    return deliveryFailedReasonNote;
+  }
+
+  public void setDeliveryFailedReasonNote(String deliveryFailedReasonNote) {
+    this.deliveryFailedReasonNote = deliveryFailedReasonNote;
+  }
+
+  public String getDeliveryOtpHash() {
+    return deliveryOtpHash;
+  }
+
+  public void setDeliveryOtpHash(String deliveryOtpHash) {
+    this.deliveryOtpHash = deliveryOtpHash;
+  }
+
+  public String getDeliveryOtpNonce() {
+    return deliveryOtpNonce;
+  }
+
+  public void setDeliveryOtpNonce(String deliveryOtpNonce) {
+    this.deliveryOtpNonce = deliveryOtpNonce;
+  }
+
+  public Instant getDeliveryOtpExpiresAt() {
+    return deliveryOtpExpiresAt;
+  }
+
+  public void setDeliveryOtpExpiresAt(Instant deliveryOtpExpiresAt) {
+    this.deliveryOtpExpiresAt = deliveryOtpExpiresAt;
+  }
+
+  public Instant getDeliveryOtpVerifiedAt() {
+    return deliveryOtpVerifiedAt;
+  }
+
+  public void setDeliveryOtpVerifiedAt(Instant deliveryOtpVerifiedAt) {
+    this.deliveryOtpVerifiedAt = deliveryOtpVerifiedAt;
+  }
+
+  public Instant getDeliveryOtpIssuedAt() {
+    return deliveryOtpIssuedAt;
+  }
+
+  public void setDeliveryOtpIssuedAt(Instant deliveryOtpIssuedAt) {
+    this.deliveryOtpIssuedAt = deliveryOtpIssuedAt;
+  }
+
+  public String getProofPhotoUrl() {
+    return proofPhotoUrl;
+  }
+
+  public void setProofPhotoUrl(String proofPhotoUrl) {
+    this.proofPhotoUrl = proofPhotoUrl;
   }
 }

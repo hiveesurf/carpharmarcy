@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>E2E — OTP visible (before verify)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f1419; color: #e8eaed; margin: 0; padding: 24px; }
+    .card { max-width: 420px; margin: 0 auto; background: rgba(15,20,25,.95); border: 1px solid #3d4f5f; border-radius: 16px; padding: 20px; }
+    .label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #ff6b35; }
+    .otp-box { margin-top: 12px; border: 2px solid rgba(255,107,53,.5); background: rgba(255,107,53,.15); border-radius: 12px; padding: 16px; }
+    .code { font-size: 40px; font-weight: 700; letter-spacing: .4em; margin: 12px 0; }
+    .meta { font-size: 12px; color: #9aa0a6; margin-top: 8px; }
+    .network { margin-top: 20px; font-size: 11px; background: #1a222c; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    h1 { font-size: 14px; color: #9aa0a6; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>E2E snapshot — My Orders (expanded) — BEFORE verify</h1>
+    <p class="meta">Order: <strong>ord_573a64b0-f7c4-4a29-a102-de95c57d6f48</strong></p>
+    <p class="meta">Customer: 9004027637 · Partner: emp_7598521713@carnalysys.local</p>
+    <p class="meta">Stage: <strong>otp_pending</strong></p>
+    <div class="otp-box">
+      <p class="label">Your delivery OTP</p>
+      <p class="code">123456</p>
+      <p class="meta">Expires in ~15:00 (otpExpiresAt: 2026-05-30T09:10:46.943769Z)</p>
+      <p class="meta">Share with delivery partner on arrival only.</p>
+    </div>
+    <div class="network">GET /api/v1/orders/ord_573a64b0-f7c4-4a29-a102-de95c57d6f48/delivery-otp → 200
+{
+  "deliveryStage": "otp_pending",
+  "otpPending": true,
+  "otpExpired": false,
+  "deliveryOtp": "123456",
+  "otpExpiresAt": "2026-05-30T09:10:46.943769Z"
+}
+
+GET /api/v1/orders/{id} → deliveryOtp: "123456", deliveryOtpVerified: false</div>
+  </div>
+</body>
+</html>

@@ -12,6 +12,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.uat.example
+!.env.production.example
 !.env.local
 !.env.uat
 !.env.production
@@ -21,6 +24,9 @@ backend/.env.prod
 !backend/.env.local.example
 !backend/.env.uat.example
 !backend/.env.prod.example
+firebase-service-account.json
+*.firebase.json
+service-account*.json
 
 # Logs
 logs

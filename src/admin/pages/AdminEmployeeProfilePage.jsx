@@ -13,6 +13,8 @@ import {
 import * as adminService from '../../services/adminService.js'
 import { getFetchErrorMessage } from '../../lib/apiErrorMessage.js'
 import { EmployeeAvatar } from '../components/EmployeeAvatar.jsx'
+import { employeeAvailabilityFromRow, employeeAvailabilityLabel } from '../../lib/employeeAvailability.js'
+import { subscribeWorkforceAvailabilityRefresh } from '../../lib/workforceEvents.js'
 
 const CANVAS =
   '-mx-4 min-w-0 rounded-none bg-[#eaeded] px-4 py-5 dark:bg-ink/40 md:-mx-6 md:rounded-xl md:px-6 lg:-mx-0 lg:rounded-xl lg:px-8'
@@ -57,14 +59,6 @@ function formatDate(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
-}
-
-function employeeAvailabilityLabel(raw) {
-  const s = String(raw ?? 'offline').trim().toLowerCase()
-  if (s === 'online' || s === 'free') return 'Online'
-  if (s === 'busy') return 'Busy'
-  if (s === 'offline') return 'Offline'
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Offline'
 }
 
 function statusPillClass(status) {
@@ -196,6 +190,8 @@ export function AdminEmployeeProfilePage() {
     void loadEmployee()
   }, [loadEmployee])
 
+  useEffect(() => subscribeWorkforceAvailabilityRefresh(() => void loadEmployee()), [loadEmployee])
+
   useEffect(() => {
     if (!phone) return
     void loadDelivery(appliedFrom, appliedTo, 0, searchDebounced)
@@ -243,7 +239,7 @@ export function AdminEmployeeProfilePage() {
     void loadDelivery(appliedFrom, appliedTo, next, searchDebounced)
   }
 
-  const availabilityValue = employeeAvailabilityLabel(employee?.availability)
+  const availabilityValue = employeeAvailabilityLabel(employeeAvailabilityFromRow(employee))
   const onboardingValue = String(employee?.status ?? 'pending').replace(/_/g, ' ')
   const successRateDisplay =
     typeof summary.deliverySuccessRate === 'number' ? `${summary.deliverySuccessRate}%` : '0%'
